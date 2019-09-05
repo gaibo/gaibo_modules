@@ -7,7 +7,7 @@ EOD_FILENAME_TEMPLATE = '{}y_{}_EOD_raw_{}.csv'
 
 
 def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
-    """Read CME EOD Treasury files from disk and load them into consistently formatted DataFrames
+    """ Read CME EOD Treasury files from disk and load them into consistently formatted DataFrames
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
     :param trade_date_str: trade date as a string, e.g. '2019-03-21'
     :param letter: 'e' (available starting 2019-02-25), 'p', or 'f'

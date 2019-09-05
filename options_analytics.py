@@ -3,9 +3,16 @@ from scipy.stats import norm
 from scipy.optimize import root
 
 
-# Black-76 for premium for options on futures
-# black_76(call Boolean, time to expiry, strike, forward price, risk-free rate, implied volatility)
 def black_76(is_call, t, k, f, r, sigma):
+    """ Price options using Black-76 model (options on futures, bond options, swaptions, etc.)
+    :param is_call: Boolean for whether it is a call option
+    :param t: time to expiry in years
+    :param k: strike
+    :param f: forward price
+    :param r: risk-free rate
+    :param sigma: implied volatility
+    :return: option premium as a number or array of numbers, depending on input format
+    """
     d1 = (np.log(f/k) + (sigma**2/2)*t) / (sigma*np.sqrt(t))
     d2 = d1 - sigma*np.sqrt(t)
     if isinstance(is_call, bool):
@@ -24,9 +31,16 @@ def black_76(is_call, t, k, f, r, sigma):
         return arr_out
 
 
-# Solve root of Black-76 with vol guess minus actual prem for implied volatility for options on futures
-# implied_vol_b76(call Boolean, time to expiry, strike, forward price, risk-free rate, option price)
 def implied_vol_b76(is_call, t, k, f, r, prem):
+    """ Back out implied volatility of options using Black-76 model (options on futures, bond options, swaptions, etc.)
+    :param is_call: Boolean for whether it is a call option
+    :param t: time to expiry in years
+    :param k: strike
+    :param f: forward price
+    :param r: risk-free rate
+    :param prem: option price
+    :return: option implied volatility as a number or array of numbers, depending on input format
+    """
     solved_root = \
         root(lambda sigma: black_76(is_call, t, k, f, r, sigma) - prem,
              x0=np.ones_like(prem), tol=None)
@@ -38,8 +52,14 @@ def implied_vol_b76(is_call, t, k, f, r, prem):
         return solved_root.x
 
 
-# Vega (Black-76)
-# vega_b76(time to expiry, strike, forward price, risk-free rate, implied volatility)
 def vega_b76(t, k, f, r, sigma):
+    """ Calculate vega of options using Black-76 model (options on futures, bond options, swaptions, etc.)
+    :param t: time to expiry in years
+    :param k: strike
+    :param f: forward price
+    :param r: risk-free rate
+    :param sigma: implied volatility
+    :return: vega as a number or array of numbers, depending on input format
+    """
     d1 = (np.log(f/k) + (sigma**2/2)*t) / (sigma*np.sqrt(t))
     return np.exp(-r*t)*f * norm.pdf(d1)*np.sqrt(t) * 0.01
