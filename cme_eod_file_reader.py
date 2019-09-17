@@ -75,7 +75,7 @@ def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
         n_bad_settlements = (~is_integer_settlement).sum()
         if n_bad_settlements > 0:
             data = data[is_integer_settlement].reset_index(drop=True)
-            print("WARNING: Dropped {} bad settlement price row[s].".format(n_bad_settlements))
+            print("WARNING: Dropped {} bad settlement price row(s).".format(n_bad_settlements))
         # For 2-year and for 5-year starting 2008-03-03, the last digit of settle ticks is a 0.5 not 5
         trade_date = pd.Timestamp(trade_date_str)
         if tenor == 2 or (tenor == 5 and trade_date >= FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE):
