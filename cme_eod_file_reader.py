@@ -57,7 +57,15 @@ def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
         data['Last Trade Date'] = pd.to_datetime(data['Last Trade Date'].astype(str))
 
     # Handle erratically formatted strike field
-    if data['Strike Price'].max() > 300:
+    max_strike = data['Strike Price'].max()
+    if max_strike > 3000:
+        # This is a rare case for only 5-year where strikes are formatted as ~10000
+        # and may be the result of an unintended error from CBOT; drop these rows
+        is_usable_strike = data['Strike Price'].map(lambda k: k <= 3000)
+        n_bad_strikes = (~is_usable_strike).sum()
+        data = data[is_usable_strike].reset_index(drop=True)
+        print("WARNING: Dropped {} bad strike row(s).".format(n_bad_strikes))
+    if max_strike > 300:
         # Strike would never be above 300; must add decimal point back in (10-year sometimes formats otherwise)
         # Fix bizarre strike formatting for 0.25 (10-year) and 0.125 (2-year) increments as well
         data.loc[(data['Strike Price'] % 10 == 2) |
