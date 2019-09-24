@@ -104,6 +104,9 @@ def _handle_e_settlement_prices(data, tenor, trade_date_str):
     """
     if (tenor == 2 or tenor == 5) and trade_date_str == TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR:
         data['Settlement'] /= 10
+        print("WARNING: This day ({}) has unexplainable 'e' prices for 2- and 5-year. "
+              "Settlements do not match to whole ticks and seem to be 10x those of 'p'/'f'."
+              .format(TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR))
     return data
 
 
