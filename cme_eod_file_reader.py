@@ -5,6 +5,7 @@ TICKSIZE = 0.015625     # 1/64
 EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/{}Y/EOD/Unzipped/'
 EOD_FILENAME_TEMPLATE = '{}y_{}_EOD_raw_{}.csv'
 FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE = pd.Timestamp('2008-03-03')
+TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR = '2017-08-28'
 
 
 def _handle_expirations(data):
@@ -94,6 +95,18 @@ def _handle_fp_settlement_prices(data, tenor, trade_date_str):
     return data
 
 
+def _handle_e_settlement_prices(data, tenor, trade_date_str):
+    """ Helper function for handling bizarrely-formatted settlement prices for "e" files
+    :param data: DataFrame from read_eod_file
+    :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
+    :param trade_date_str: trade date as a string, e.g. '2019-03-21'
+    :return: DataFrame with settlement prices in dollars
+    """
+    if (tenor == 2 or tenor == 5) and trade_date_str == TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR:
+        data['Settlement'] /= 10
+    return data
+
+
 def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
     """ Read CME EOD Treasury files from disk and load them into consistently formatted DataFrames
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
@@ -128,7 +141,9 @@ def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
     # Handle erratically-formatted strike field
     data = _handle_strikes(data)
     # Handle erratically-formatted settlement price field
-    if letter in ['p', 'f']:
+    if letter == 'e':
+        data = _handle_e_settlement_prices(data, tenor, trade_date_str)
+    else:
         data = _handle_fp_settlement_prices(data, tenor, trade_date_str)
 
     return data
