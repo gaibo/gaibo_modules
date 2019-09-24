@@ -2,6 +2,7 @@ import pandas as pd
 from options_futures_expirations_v2 import last_friday
 
 TICKSIZE = 0.015625     # 1/64
+REASONABLE_DOLLAR_STRIKE_LIMIT = 300    # $300 on a $100 face value is pushing it
 EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/{}Y/EOD/Unzipped/'
 EOD_FILENAME_TEMPLATE = '{}y_{}_EOD_raw_{}.csv'
 FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE = pd.Timestamp('2008-03-03')
@@ -40,7 +41,7 @@ def _handle_strikes(data):
     :return: DataFrame with strikes normalized
     """
     max_strike = data['Strike Price'].max()     # Used as format indicator
-    if max_strike > 3000:
+    if max_strike > 10*REASONABLE_DOLLAR_STRIKE_LIMIT:
         # This indicates a special day (in only 5-year) on which a few rows have strikes
         # formatted with an additional "0" (e.g. "10300" instead of "1030", to mean "$103"),
         # suspected to provide Globex-specific trade info
@@ -50,7 +51,7 @@ def _handle_strikes(data):
         n_bad_strikes = (~is_usable_strike).sum()
         data = data[is_usable_strike].reset_index(drop=True)
         print("WARNING: Dropped {} suspicious strike row(s).".format(n_bad_strikes))
-    if max_strike > 300:
+    if max_strike > REASONABLE_DOLLAR_STRIKE_LIMIT:
         # Strike would never be above $300; add decimal point back in, since it appears
         # to be multiplied by 10x; this is necessary as 10-year sometimes does not require this
         # Also, fix bizarre strike formatting for 0.25 (10-year) and 0.125 (2-year) increments
@@ -76,7 +77,7 @@ def _handle_fp_settlement_prices(data, tenor, trade_date_str):
     n_bad_settlements = (~is_integer_settlement).sum()
     if n_bad_settlements > 0:
         max_nontick_settlement = data.loc[~is_integer_settlement, 'Settlement'].max()   # Used as format indicator
-        if max_nontick_settlement > 300:
+        if max_nontick_settlement > REASONABLE_DOLLAR_STRIKE_LIMIT:
             # Option premium would never be above $300; move decimal based on empirical profiling
             if tenor in [2, 5]:
                 data.loc[~is_integer_settlement, 'Settlement'] /= 1000
