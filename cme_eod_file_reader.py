@@ -3,6 +3,7 @@ from options_futures_expirations_v2 import last_friday
 
 TICKSIZE = 0.015625     # 1/64
 REASONABLE_DOLLAR_STRIKE_LIMIT = 300    # $300 on a $100 face value is pushing it
+REASONABLE_DOLLAR_PRICE_LIMIT = 120     # $120 premium on $100 face value is pushing it
 EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/{}Y/EOD/Unzipped/'
 EOD_FILENAME_TEMPLATE = '{}y_{}_EOD_raw_{}.csv'
 FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE = pd.Timestamp('2008-03-03')
@@ -77,8 +78,8 @@ def _handle_fp_settlement_prices(data, tenor, trade_date_str):
     n_bad_settlements = (~is_integer_settlement).sum()
     if n_bad_settlements > 0:
         max_nontick_settlement = data.loc[~is_integer_settlement, 'Settlement'].max()   # Used as format indicator
-        if max_nontick_settlement > REASONABLE_DOLLAR_STRIKE_LIMIT:
-            # Option premium would never be above $300; move decimal based on empirical profiling
+        if max_nontick_settlement > REASONABLE_DOLLAR_PRICE_LIMIT:
+            # Option premium would never be above $120; move decimal based on empirical profiling
             if tenor in [2, 5]:
                 data.loc[~is_integer_settlement, 'Settlement'] /= 1000
             else:
