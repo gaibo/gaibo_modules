@@ -47,7 +47,7 @@ def _handle_strikes(data):
         # suspected to provide Globex-specific trade info
         # NOTE: we drop these rows for now, due to uncertainty, as they either
         #       1) do not present new prices (only volumes) or 2) conflict with existing prices
-        is_usable_strike = data['Strike Price'].map(lambda k: k <= 3000)
+        is_usable_strike = data['Strike Price'].map(lambda k: k <= 10*REASONABLE_DOLLAR_STRIKE_LIMIT)
         n_bad_strikes = (~is_usable_strike).sum()
         data = data[is_usable_strike].reset_index(drop=True)
         print("WARNING: Dropped {} suspicious strike row(s).".format(n_bad_strikes))
