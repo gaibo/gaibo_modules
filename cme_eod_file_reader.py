@@ -66,7 +66,7 @@ def _handle_strikes(data):
     return data
 
 
-def _handle_fp_settlement_prices(data, tenor, trade_date_str):
+def _handle_pf_settlement_prices(data, tenor, trade_date_str):
     """ Helper function for handling bizarrely-formatted settlement prices for "p" and "f" files
     :param data: DataFrame from read_eod_file
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
@@ -122,7 +122,8 @@ def _handle_duplicate_series(data):
     # NOTE: .unique() is necessary since multiple dupes per series is possible
     dupe_indexes = data_indexed.index[data_indexed.index.duplicated()].unique()
     if len(dupe_indexes) == 0:
-        return data
+        # Remove DataFrame indexing and retain its sorting, for aesthetic consistency
+        return data_indexed.reset_index()
     else:
         # Examine each series where duplicates exist
         for dupe_index in dupe_indexes:
@@ -198,16 +199,18 @@ def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
         file_name = EOD_FILENAME_TEMPLATE.format(tenor, trade_date_str, letter)
 
     # Load raw data file
-    basic_fields = ['Contract Year', 'Contract Month', 'Last Trade Date',
-                    'Put/Call', 'Strike Price', 'Settlement']
-    extra_fields = ['Open Interest', 'Total Volume', 'Delta', 'Implied Volatility']
+    e_fields = ['Last Trade Date', 'Put/Call', 'Strike Price',
+                'Settlement', 'Contract Year', 'Contract Month']
+    pf_fields = ['Last Trade Date', 'Put/Call', 'Strike Price',
+                 'Settlement', 'Open Interest', 'Total Volume',
+                 'Delta', 'Implied Volatility', 'Contract Year', 'Contract Month']
     if letter == 'e':
         # 'e' has fewer usable fields
         data = pd.read_csv(file_dir + file_name,
-                           usecols=basic_fields)
+                           usecols=e_fields)[e_fields]  # Enforce column ordering
     else:
         data = pd.read_csv(file_dir + file_name,
-                           usecols=basic_fields+extra_fields)
+                           usecols=pf_fields)[pf_fields]    # Enforce column ordering
     print(file_name + " read.")
 
     # Clean data
@@ -219,7 +222,7 @@ def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
     if letter == 'e':
         data = _handle_e_settlement_prices(data, tenor, trade_date_str)
     else:
-        data = _handle_fp_settlement_prices(data, tenor, trade_date_str)
+        data = _handle_pf_settlement_prices(data, tenor, trade_date_str)
     # Handle duplicate series
     data = _handle_duplicate_series(data)
 
