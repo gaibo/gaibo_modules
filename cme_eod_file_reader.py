@@ -136,14 +136,20 @@ def _handle_duplicate_series(data):
             neighboring_prices = neighboring_prices.loc[neighboring_prices.index.drop_duplicates(False)]
             try:
                 dupe_prev_price = neighboring_prices[neighboring_prices.index < dupe_strike].iloc[-1]
-            except KeyError:
-                # No lower bound found
-                dupe_prev_price = 0
+            except IndexError:
+                # No previous price found - create upper or lower bound depending on call or put
+                if dupe_pc == 'C':
+                    dupe_prev_price = REASONABLE_DOLLAR_PRICE_LIMIT
+                else:
+                    dupe_prev_price = 0
             try:
                 dupe_next_price = neighboring_prices[neighboring_prices.index > dupe_strike].iloc[0]
-            except KeyError:
-                # No upper bound found
-                dupe_next_price = REASONABLE_DOLLAR_PRICE_LIMIT
+            except IndexError:
+                # No next price found - create upper or lower bound depending on call or put
+                if dupe_pc == 'C':
+                    dupe_next_price = 0
+                else:
+                    dupe_next_price = REASONABLE_DOLLAR_PRICE_LIMIT
             if dupe_pc == 'C':
                 # For calls, lower strikes have higher prices
                 good_prices = dupe_prices[(dupe_prices >= dupe_next_price) &
