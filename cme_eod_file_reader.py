@@ -66,6 +66,17 @@ def _handle_strikes(data):
     return data
 
 
+def _correct_multiplier_using_neighbors(arr):
+    prev_val, curr_val, next_val = arr
+    neighbor_mean = (prev_val + next_val) / 2
+    if abs(curr_val*64 - neighbor_mean) < abs(curr_val - neighbor_mean):
+        # It is likely the case that curr_val was a whole dollar value mixed in
+        # with ticks; restore curr_val back to dollar
+        return curr_val*64
+    else:
+        return curr_val
+
+
 def _handle_pf_settlement_prices(data, tenor, trade_date_str):
     """ Helper function for handling bizarrely-formatted settlement prices for "p" and "f" files
     :param data: DataFrame from read_eod_file
