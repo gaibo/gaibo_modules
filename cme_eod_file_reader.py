@@ -92,7 +92,8 @@ def _handle_pf_settlement_prices(data, tenor, trade_date_str):
     is_integer_settlement = data['Settlement'].astype(float).apply(float.is_integer)
     n_nontick_settlements = (~is_integer_settlement).sum()
     if n_nontick_settlements > 0:
-        max_nontick_settlement = data.loc[~is_integer_settlement, 'Settlement'].max()   # Used as format indicator
+        max_nontick_settlement = \
+            data.loc[~is_integer_settlement, 'Settlement'].max()   # Used as format indicator
         if max_nontick_settlement > REASONABLE_DOLLAR_PRICE_LIMIT:
             # Option premium would never be above $120; move decimal based on empirical profiling
             if tenor in [2, 5]:
@@ -251,7 +252,7 @@ def _repair_misinterpreted_whole_dollars(data):
             n_corrections = len(diff_indexes)
             if n_corrections > 0:
                 data_indexed.loc[(exp, pc, diff_indexes), 'Settlement'] = \
-                    repaired_prices[diff_indexes].squeeze()
+                    repaired_prices[diff_indexes].values
             total_corrections += n_corrections
     if total_corrections > 0:
         print("WARNING: Misinterpreted whole dollar settlement prices identified and repaired: {}."
