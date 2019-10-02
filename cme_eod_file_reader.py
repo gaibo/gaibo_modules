@@ -1,7 +1,6 @@
 import pandas as pd
 from options_futures_expirations_v2 import last_friday
 
-TICKSIZE = 0.015625     # 1/64
 REASONABLE_DOLLAR_STRIKE_LIMIT = 300    # $300 on a $100 face value is pushing it
 REASONABLE_DOLLAR_PRICE_LIMIT = 120     # $120 premium on $100 face value is pushing it
 EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/{}Y/EOD/Unzipped/'
@@ -11,7 +10,7 @@ TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR = '2017-08-28'
 
 
 def _handle_expirations(data):
-    """ Helper function for handling missing expirations
+    """ Helper: Handle missing expirations
     :param data: DataFrame from read_eod_file
     :return: DataFrame with expiration dates completed
     """
@@ -37,7 +36,7 @@ def _handle_expirations(data):
 
 
 def _handle_strikes(data):
-    """ Helper function for handling bizarrely-formatted strikes
+    """ Helper: Handle bizarrely-formatted strikes
     :param data: DataFrame from read_eod_file
     :return: DataFrame with strikes normalized
     """
@@ -51,7 +50,7 @@ def _handle_strikes(data):
         is_usable_strike = data['Strike Price'].map(lambda k: k <= 10*REASONABLE_DOLLAR_STRIKE_LIMIT)
         n_bad_strikes = (~is_usable_strike).sum()
         data = data[is_usable_strike].reset_index(drop=True)
-        print("WARNING: Dropped {} suspicious strike row(s).".format(n_bad_strikes))
+        print("WARNING: Suspicious strike rows encountered and dropped: {}.".format(n_bad_strikes))
     if max_strike > REASONABLE_DOLLAR_STRIKE_LIMIT:
         # Strike would never be above $300; add decimal point back in, since it appears
         # to be multiplied by 10x; this is necessary as 10-year sometimes does not require this
@@ -66,28 +65,33 @@ def _handle_strikes(data):
     return data
 
 
-def _correct_multiplier_using_neighbors(arr):
-    prev_val, curr_val, next_val = arr
-    neighbor_mean = (prev_val + next_val) / 2
-    if abs(curr_val*64 - neighbor_mean) < abs(curr_val - neighbor_mean):
-        # It is likely the case that curr_val was a whole dollar value mixed in
-        # with ticks; restore curr_val back to dollar
-        return curr_val*64
-    else:
-        return curr_val
+def _settlement_field_to_dollars(settlements, half_ticks=False):
+    """ Utility: Convert CME EOD settlement price format into dollars
+    :param settlements: prices in dollar-and-spare-ticks format, e.g. "841" means 8 + 41/64 dollars
+    :param half_ticks: True means half ticks are possible (2- and some of 5-year), e.g. "8415"
+                       means "841.5" which means 8 + 41.5/64 dollars
+    :return: settlements converted into dollar
+    """
+    if half_ticks:
+        settlements /= 10
+    whole_dollars = settlements // 100
+    spare_ticks = settlements % 100
+    return whole_dollars + spare_ticks/64
 
 
 def _handle_pf_settlement_prices(data, tenor, trade_date_str):
-    """ Helper function for handling bizarrely-formatted settlement prices for "p" and "f" files
+    """ Helper: Handle bizarrely-formatted settlement prices for "p" and "f" files
+        NOTE: this function is unable to detect the case of an unexpected whole number dollar value
+              being interpreted as a number of ticks; that must be accounted for in final step
     :param data: DataFrame from read_eod_file
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
     :param trade_date_str: trade date as a string, e.g. '2019-03-21'
     :return: DataFrame with settlement prices in dollars
     """
-    # Repair settlement prices that are clearly not in whole ticks direcly into dollars
+    # Convert unexpected decimal prices that are clearly not in ticks direcly into dollars
     is_integer_settlement = data['Settlement'].astype(float).apply(float.is_integer)
-    n_bad_settlements = (~is_integer_settlement).sum()
-    if n_bad_settlements > 0:
+    n_nontick_settlements = (~is_integer_settlement).sum()
+    if n_nontick_settlements > 0:
         max_nontick_settlement = data.loc[~is_integer_settlement, 'Settlement'].max()   # Used as format indicator
         if max_nontick_settlement > REASONABLE_DOLLAR_PRICE_LIMIT:
             # Option premium would never be above $120; move decimal based on empirical profiling
@@ -95,21 +99,25 @@ def _handle_pf_settlement_prices(data, tenor, trade_date_str):
                 data.loc[~is_integer_settlement, 'Settlement'] /= 1000
             else:
                 data.loc[~is_integer_settlement, 'Settlement'] /= 100
-        print("WARNING: Encountered {} non-tick settlement price row(s). "
-              "Tried to convert them all to dollars.".format(n_bad_settlements))
+        print("WARNING: Non-tick settlement price rows encountered and merged: {}."
+              .format(n_nontick_settlements))
     # Convert whole ticks settlement prices into dollars
     trade_date = pd.Timestamp(trade_date_str)
     if tenor == 2 or (tenor == 5 and trade_date >= FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE):
         # For 2-year (all dates) and for 5-year starting 2008-03-03, the last digit
-        # of settlement ticks is actually a decimal (e.g. "1055" means "105.5 ticks of 64th")
-        data.loc[is_integer_settlement, 'Settlement'] *= 0.1 * TICKSIZE
+        # of settlement ticks is actually a decimal (e.g. "1055" should be treated
+        # as "105.5", i.e. 1 + 5.5/64 dollars)
+        data.loc[is_integer_settlement, 'Settlement'] = \
+            _settlement_field_to_dollars(data.loc[is_integer_settlement, 'Settlement'],
+                                         half_ticks=True)
     else:
-        data.loc[is_integer_settlement, 'Settlement'] *= TICKSIZE
+        data.loc[is_integer_settlement, 'Settlement'] = \
+            _settlement_field_to_dollars(data.loc[is_integer_settlement, 'Settlement'])
     return data
 
 
 def _handle_e_settlement_prices(data, tenor, trade_date_str):
-    """ Helper function for handling bizarrely-formatted settlement prices for "e" files
+    """ Helper: Handle bizarrely-formatted settlement prices for "e" files
     :param data: DataFrame from read_eod_file
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
     :param trade_date_str: trade date as a string, e.g. '2019-03-21'
@@ -124,7 +132,7 @@ def _handle_e_settlement_prices(data, tenor, trade_date_str):
 
 
 def _handle_duplicate_series(data):
-    """ Helper function for handling duplicate series
+    """ Helper: Handle duplicate series
     :param data: DataFrame from read_eod_file
     :return: DataFrame with no duplicate series
     """
@@ -179,7 +187,7 @@ def _handle_duplicate_series(data):
                 continue
             # If 1 or more reasonable prices found, retain 1
             if n_good_prices > 1:
-                print("WARNING: Duplicates found for series {} and MULTIPLE prices were reasonable ({})."
+                print("WARNING: Duplicates fixed for series {}, though MULTIPLE prices were reasonable ({})."
                       .format(dupe_index, n_good_prices))
             else:
                 print("WARNING: Duplicates fixed for series {}.".format(dupe_index))
@@ -192,6 +200,58 @@ def _handle_duplicate_series(data):
         # Earlier we overwrote corrected values to all duplicate indexes, so only retain first,
         # then remove DataFrame indexing, then reset number index
         return data_indexed.loc[~data_indexed.index.duplicated()].reset_index().reset_index(drop=True)
+
+
+def _correct_price_against_standard(price, standard):
+    """ Utility: Correct price that is ~64x off from standard """
+    if abs(price*64 - standard) < abs(price - standard):
+        # It is likely the case that price was a whole dollar value mixed in
+        # with ticks if it is ~64x too small; restore price back to dollar
+        return price*64
+    else:
+        return price
+
+
+def _correct_price_using_neighbors(arr):
+    """ Utility: Given array of 3 values, correct middle against mean of others
+        NOTE: Exclusively meant for use in rolling apply """
+    prev_val, curr_val, next_val = arr
+    neighbor_mean = (prev_val + next_val) / 2
+    return _correct_price_against_standard(curr_val, neighbor_mean)
+
+
+def _repair_misinterpreted_whole_dollars(data):
+    """ Helper: Repair prices that were originally (unexpectedly) whole dollars and thus
+        mistaken to be in ticks format and converted into significantly lower prices
+    :param data: DataFrame from read_eod_file
+    :return: DataFrame with repaired prices
+    """
+    exps = data['Last Trade Date'].unique()
+    data_indexed = data.set_index(['Last Trade Date', 'Put/Call', 'Strike Price']).sort_index()
+    total_corrections = 0
+    # Address strike range of each series in isolation
+    for exp in exps:
+        for pc in ['C', 'P']:
+            prices = data_indexed.loc[(exp, pc), 'Settlement']
+            # Correct prices based on their previous and next prices
+            repaired_prices = (prices.rolling(3, center=True)
+                                     .apply(_correct_price_using_neighbors, raw=True))
+            # Correct prices on the ends (that aren't addressed with rolling apply)
+            repaired_prices.iloc[0] = \
+                _correct_price_against_standard(prices.iloc[0], repaired_prices.iloc[1])
+            repaired_prices.iloc[-1] = \
+                _correct_price_against_standard(prices.iloc[-1], repaired_prices.iloc[-2])
+            # Save and log differences
+            diff_indexes = prices[~prices.eq(repaired_prices)].index
+            n_corrections = len(diff_indexes)
+            if n_corrections > 0:
+                data_indexed.loc[(exp, pc, diff_indexes), 'Settlement'] = \
+                    repaired_prices[diff_indexes].squeeze()
+            total_corrections += n_corrections
+    if total_corrections > 0:
+        print("WARNING: Misinterpreted whole dollar settlement prices identified and repaired: {}."
+              .format(total_corrections))
+    return data_indexed.reset_index()
 
 
 def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
@@ -236,5 +296,7 @@ def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
         data = _handle_pf_settlement_prices(data, tenor, trade_date_str)
     # Handle duplicate series
     data = _handle_duplicate_series(data)
+    # Repair misinterpreted unexpected
+    data = _repair_misinterpreted_whole_dollars(data)
 
     return data
