@@ -232,10 +232,12 @@ def _repair_misinterpreted_whole_dollars(data):
     # Address strike range of each series in isolation
     for exp in exps:
         for pc in ['C', 'P']:
-            prices = data_indexed.loc[(exp, pc), 'Settlement']
+            try:
+                prices = data_indexed.loc[(exp, pc), 'Settlement']
+            except KeyError:
+                continue    # Apparently no calls or no puts exist for this expiry
             if len(prices) < 2:
-                # Cannot evaluate if only 1 price or none
-                continue
+                continue    # Cannot evaluate if only 1 price or none
             # Correct prices based on their previous and next prices
             repaired_prices = (prices.rolling(3, center=True)
                                      .apply(_correct_price_using_neighbors, raw=True))
