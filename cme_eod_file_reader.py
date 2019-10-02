@@ -233,6 +233,9 @@ def _repair_misinterpreted_whole_dollars(data):
     for exp in exps:
         for pc in ['C', 'P']:
             prices = data_indexed.loc[(exp, pc), 'Settlement']
+            if len(prices) < 2:
+                # Cannot evaluate if only 1 price or none
+                continue
             # Correct prices based on their previous and next prices
             repaired_prices = (prices.rolling(3, center=True)
                                      .apply(_correct_price_using_neighbors, raw=True))
