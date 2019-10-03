@@ -203,30 +203,59 @@ def _handle_duplicate_series(data):
         return data_indexed.loc[~data_indexed.index.duplicated()].reset_index().reset_index(drop=True)
 
 
-def _correct_price_against_standard(price, standard):
-    """ Utility: Correct price that is ~64x off from standard """
-    if abs(price*64 - standard) < abs(price - standard):
+def _correct_price_against_standard(price, standard, half_ticks):
+    """ Utility: Correct price that is way off from standard as a result of
+        incorrectly-assumed format
+        NOTE: when half-ticks are possible (2-year and some of 5-year), an additional
+              10x multiplier is considered due to half-tick formatting
+    """
+    if half_ticks:
+        multiplier = 640
+    else:
+        multiplier = 64
+    if abs(price*multiplier - standard) < abs(price - standard):
         # It is likely the case that price was a whole dollar value mixed in
-        # with ticks if it is ~64x too small; restore price back to dollar
-        return price*64
+        # with ticks if it is way too small; restore price back to dollar
+        return price*multiplier
     else:
         return price
 
 
-def _correct_price_using_neighbors(arr):
+def _rolling_apply_correction(arr, half_ticks):
     """ Utility: Given array of 3 values, correct middle against mean of others
+        if it is way less than both others
         NOTE: Exclusively meant for use in rolling apply """
     prev_val, curr_val, next_val = arr
-    neighbor_mean = (prev_val + next_val) / 2
-    return _correct_price_against_standard(curr_val, neighbor_mean)
+    if curr_val < prev_val and curr_val < next_val:
+        neighbor_mean = (prev_val + next_val) / 2
+        return _correct_price_against_standard(curr_val, neighbor_mean, half_ticks)
+    else:
+        return curr_val
 
 
-def _repair_misinterpreted_whole_dollars(data):
+def _correct_price_using_neighbors(prices, half_ticks):
+    """ Utility: Given prices in order of strike, identify and correct prices that are outliers """
+    # Correct prices based on their previous and next prices
+    repaired_prices = (prices.rolling(3, center=True)
+                             .apply(_rolling_apply_correction, args=[half_ticks], raw=True))
+    # Keep prices as is on the ends (that aren't addressed with rolling apply)
+    # NOTE: after testing, it is just too risky and complex to "correct" these prices
+    repaired_prices.iloc[0] = prices.iloc[0]
+    repaired_prices.iloc[-1] = prices.iloc[-1]
+    return repaired_prices
+
+
+def _repair_misinterpreted_whole_dollars(data, tenor, trade_date_str):
     """ Helper: Repair prices that were originally (unexpectedly) whole dollars and thus
         mistaken to be in ticks format and converted into significantly lower prices
     :param data: DataFrame from read_eod_file
     :return: DataFrame with repaired prices
     """
+    trade_date = pd.Timestamp(trade_date_str)
+    if tenor == 2 or (tenor == 5 and trade_date >= FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE):
+        half_ticks = True
+    else:
+        half_ticks = False
     exps = data['Last Trade Date'].unique()
     data_indexed = data.set_index(['Last Trade Date', 'Put/Call', 'Strike Price']).sort_index()
     total_corrections = 0
@@ -239,14 +268,7 @@ def _repair_misinterpreted_whole_dollars(data):
                 continue    # Apparently no calls or no puts exist for this expiry
             if len(prices) < 2:
                 continue    # Cannot evaluate if only 1 price or none
-            # Correct prices based on their previous and next prices
-            repaired_prices = (prices.rolling(3, center=True)
-                                     .apply(_correct_price_using_neighbors, raw=True))
-            # Correct prices on the ends (that aren't addressed with rolling apply)
-            repaired_prices.iloc[0] = \
-                _correct_price_against_standard(prices.iloc[0], repaired_prices.iloc[1])
-            repaired_prices.iloc[-1] = \
-                _correct_price_against_standard(prices.iloc[-1], repaired_prices.iloc[-2])
+            repaired_prices = _correct_price_using_neighbors(prices, half_ticks)
             # Save and log differences
             diff_indexes = prices[~prices.eq(repaired_prices)].index
             n_corrections = len(diff_indexes)
@@ -303,6 +325,6 @@ def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
     # Handle duplicate series
     data = _handle_duplicate_series(data)
     # Repair misinterpreted unexpected
-    data = _repair_misinterpreted_whole_dollars(data)
+    data = _repair_misinterpreted_whole_dollars(data, tenor, trade_date_str)
 
     return data
