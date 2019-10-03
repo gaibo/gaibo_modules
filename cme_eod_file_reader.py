@@ -14,25 +14,26 @@ def _handle_expirations(data):
     :param data: DataFrame from read_eod_file
     :return: DataFrame with expiration dates completed
     """
+    data_copy = data.copy()
     # Create helper column, useful if we must generate our own expiration dates
-    data['Contract Year-Month'] = \
+    data_copy['Contract Year-Month'] = \
         data.apply(lambda row: '{}-{:02d}'.format(row['Contract Year'],
                                                   row['Contract Month']), axis=1)
     # Ensure that expiration dates are available in 'Last Trade Date' column and formatted as Timestamps
     if data['Last Trade Date'].dropna().empty:
         # Calculate expiration dates manually
-        contract_year_months = data['Contract Year-Month'].unique()
+        contract_year_months = data_copy['Contract Year-Month'].unique()
         month_ofs = pd.to_datetime(contract_year_months) - pd.Timedelta(days=1)
         contract_year_month_exps = [last_friday(month_of) for month_of in month_ofs]
         contract_year_month_exps_df = \
             pd.DataFrame({'Contract Year-Month': contract_year_months,
                           'Last Trade Date': contract_year_month_exps})
-        data = (data.drop('Last Trade Date', axis=1)
-                .merge(contract_year_month_exps_df, how='left', on='Contract Year-Month'))
+        data_copy = (data_copy.drop('Last Trade Date', axis=1)
+                     .merge(contract_year_month_exps_df, how='left', on='Contract Year-Month'))
     else:
         # Use given expiration dates
-        data['Last Trade Date'] = pd.to_datetime(data['Last Trade Date'].astype(str))
-    return data
+        data_copy['Last Trade Date'] = pd.to_datetime(data['Last Trade Date'].astype(str))
+    return data_copy
 
 
 def _handle_strikes(data):
@@ -40,6 +41,7 @@ def _handle_strikes(data):
     :param data: DataFrame from read_eod_file
     :return: DataFrame with strikes normalized
     """
+    data_copy = data.copy()
     max_strike = data['Strike Price'].max()     # Used as format indicator
     if max_strike > 10*REASONABLE_DOLLAR_STRIKE_LIMIT:
         # This indicates a special day (in only 5-year) on which a few rows have strikes
@@ -49,20 +51,20 @@ def _handle_strikes(data):
         #       1) do not present new prices (only volumes) or 2) conflict with existing prices
         is_usable_strike = data['Strike Price'].map(lambda k: k <= 10*REASONABLE_DOLLAR_STRIKE_LIMIT)
         n_bad_strikes = (~is_usable_strike).sum()
-        data = data[is_usable_strike].reset_index(drop=True)
+        data_copy = data[is_usable_strike].reset_index(drop=True)
         print("WARNING: Suspicious strike rows encountered and dropped: {}.".format(n_bad_strikes))
     if max_strike > REASONABLE_DOLLAR_STRIKE_LIMIT:
         # Strike would never be above $300; add decimal point back in, since it appears
         # to be multiplied by 10x; this is necessary as 10-year sometimes does not require this
         # Also, fix bizarre strike formatting for 0.25 (10-year) and 0.125 (2-year) increments
-        data.loc[(data['Strike Price'] % 10 == 2) |
-                 (data['Strike Price'] % 10 == 7), 'Strike Price'] += 0.5
-        data.loc[(data['Strike Price'] % 10 == 1) |
-                 (data['Strike Price'] % 10 == 6), 'Strike Price'] += 0.25
-        data.loc[(data['Strike Price'] % 10 == 3) |
-                 (data['Strike Price'] % 10 == 8), 'Strike Price'] += 0.75
-        data['Strike Price'] /= 10
-    return data
+        data_copy.loc[(data_copy['Strike Price'] % 10 == 2) |
+                      (data_copy['Strike Price'] % 10 == 7), 'Strike Price'] += 0.5
+        data_copy.loc[(data_copy['Strike Price'] % 10 == 1) |
+                      (data_copy['Strike Price'] % 10 == 6), 'Strike Price'] += 0.25
+        data_copy.loc[(data_copy['Strike Price'] % 10 == 3) |
+                      (data_copy['Strike Price'] % 10 == 8), 'Strike Price'] += 0.75
+        data_copy['Strike Price'] /= 10
+    return data_copy
 
 
 def _settlement_field_to_dollars(settlements, half_ticks=False):
@@ -72,10 +74,11 @@ def _settlement_field_to_dollars(settlements, half_ticks=False):
                        means "841.5" which means 8 + 41.5/64 dollars
     :return: settlements converted into dollar
     """
+    settlements_copy = settlements.copy()
     if half_ticks:
-        settlements /= 10
-    whole_dollars = settlements // 100
-    spare_ticks = settlements % 100
+        settlements_copy /= 10
+    whole_dollars = settlements_copy // 100
+    spare_ticks = settlements_copy % 100
     return whole_dollars + spare_ticks/64
 
 
@@ -88,6 +91,7 @@ def _handle_pf_settlement_prices(data, tenor, trade_date_str):
     :param trade_date_str: trade date as a string, e.g. '2019-03-21'
     :return: DataFrame with settlement prices in dollars
     """
+    data_copy = data.copy()
     # Convert unexpected decimal prices that are clearly not in ticks direcly into dollars
     is_integer_settlement = data['Settlement'].astype(float).apply(float.is_integer)
     n_nontick_settlements = (~is_integer_settlement).sum()
@@ -97,9 +101,9 @@ def _handle_pf_settlement_prices(data, tenor, trade_date_str):
         if max_nontick_settlement > REASONABLE_DOLLAR_PRICE_LIMIT:
             # Option premium would never be above $120; move decimal based on empirical profiling
             if tenor in [2, 5]:
-                data.loc[~is_integer_settlement, 'Settlement'] /= 1000
+                data_copy.loc[~is_integer_settlement, 'Settlement'] /= 1000
             else:
-                data.loc[~is_integer_settlement, 'Settlement'] /= 100
+                data_copy.loc[~is_integer_settlement, 'Settlement'] /= 100
         print("WARNING: Non-tick settlement price rows encountered and merged: {}."
               .format(n_nontick_settlements))
     # Convert whole ticks settlement prices into dollars
@@ -108,13 +112,14 @@ def _handle_pf_settlement_prices(data, tenor, trade_date_str):
         # For 2-year (all dates) and for 5-year starting 2008-03-03, the last digit
         # of settlement ticks is actually a decimal (e.g. "1055" should be treated
         # as "105.5", i.e. 1 + 5.5/64 dollars)
-        data.loc[is_integer_settlement, 'Settlement'] = \
+        data_copy.loc[is_integer_settlement, 'Settlement'] = \
             _settlement_field_to_dollars(data.loc[is_integer_settlement, 'Settlement'],
                                          half_ticks=True)
     else:
-        data.loc[is_integer_settlement, 'Settlement'] = \
-            _settlement_field_to_dollars(data.loc[is_integer_settlement, 'Settlement'])
-    return data
+        data_copy.loc[is_integer_settlement, 'Settlement'] = \
+            _settlement_field_to_dollars(data.loc[is_integer_settlement, 'Settlement'],
+                                         half_ticks=False)
+    return data_copy
 
 
 def _handle_e_settlement_prices(data, tenor, trade_date_str):
@@ -125,11 +130,14 @@ def _handle_e_settlement_prices(data, tenor, trade_date_str):
     :return: DataFrame with settlement prices in dollars
     """
     if (tenor == 2 or tenor == 5) and trade_date_str == TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR:
-        data['Settlement'] /= 10
+        data_copy = data.copy()
+        data_copy['Settlement'] /= 10
         print("WARNING: This day ({}) has unexplainable 'e' prices for 2- and 5-year. "
               "Settlements do not match to whole ticks and seem to be 10x those of 'p'/'f'."
               .format(TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR))
-    return data
+        return data_copy
+    else:
+        return data
 
 
 def _handle_duplicate_series(data):
@@ -203,46 +211,47 @@ def _handle_duplicate_series(data):
         return data_indexed.loc[~data_indexed.index.duplicated()].reset_index().reset_index(drop=True)
 
 
-def _correct_price_against_standard(price, standard, half_ticks):
-    """ Utility: Correct price that is way off from standard as a result of
-        incorrectly-assumed format
-        NOTE: when half-ticks are possible (2-year and some of 5-year), an additional
-              10x multiplier is considered due to half-tick formatting
+def _repair_series(prices, pc, half_ticks=False, verbose=False):
+    """ Utility: Price repair logic for _repair_misinterpreted_whole_dollars()
+    :param prices: series prices (indexed and sorted by strike)
+    :param pc: 'C' for call, 'P' for put
+    :param half_ticks: True means half ticks are possible (2- and some of 5-year)
+    :param verbose: True prints every correction that is made
+    :return: prices series with corrections made
     """
+    # Set multiplier to "correct" prices from being interpreted as ticks to dollars
     if half_ticks:
         multiplier = 640
     else:
         multiplier = 64
-    if abs(price*multiplier - standard) < abs(price - standard):
-        # It is likely the case that price was a whole dollar value mixed in
-        # with ticks if it is way too small; restore price back to dollar
-        return price*multiplier
+    # Fix prices one at a time
+    prices_copy = prices.copy()
+    if pc == 'C':
+        ascending_prices = prices_copy[::-1]    # Call prices higher as strikes decrease
     else:
-        return price
-
-
-def _rolling_apply_correction(arr, half_ticks):
-    """ Utility: Given array of 3 values, correct middle against mean of others
-        if it is way less than both others
-        NOTE: Exclusively meant for use in rolling apply """
-    prev_val, curr_val, next_val = arr
-    if curr_val < prev_val and curr_val < next_val:
-        neighbor_mean = (prev_val + next_val) / 2
-        return _correct_price_against_standard(curr_val, neighbor_mean, half_ticks)
-    else:
-        return curr_val
-
-
-def _correct_price_using_neighbors(prices, half_ticks):
-    """ Utility: Given prices in order of strike, identify and correct prices that are outliers """
-    # Correct prices based on their previous and next prices
-    repaired_prices = (prices.rolling(3, center=True)
-                             .apply(_rolling_apply_correction, args=[half_ticks], raw=True))
-    # Keep prices as is on the ends (that aren't addressed with rolling apply)
-    # NOTE: after testing, it is just too risky and complex to "correct" these prices
-    repaired_prices.iloc[0] = prices.iloc[0]
-    repaired_prices.iloc[-1] = prices.iloc[-1]
-    return repaired_prices
+        ascending_prices = prices_copy
+    # Get for each strike the price that should be just lower than its price
+    prev_ascending_prices = ascending_prices.shift()
+    # Find locations where pricing is inverted
+    bad_prices = ascending_prices[ascending_prices < prev_ascending_prices]
+    n_bad_prices = len(bad_prices)
+    while n_bad_prices > 0:
+        # Correct smallest bad price, since cascade is possible
+        bad_price = bad_prices.iloc[0]
+        bad_price_index = bad_prices.index[0]
+        standard = prev_ascending_prices[bad_price_index]
+        corrected_price = bad_price * multiplier
+        if corrected_price < standard:
+            # Should never happen - multiplier was not enough
+            return None
+        if verbose:
+            print("_repair_series: Bad price {} corrected to {} since it must be greater than {}."
+                  .format(bad_price, corrected_price, standard))
+        ascending_prices.loc[bad_price_index] = corrected_price     # This propagates to prices_copy
+        prev_ascending_prices = ascending_prices.shift()
+        bad_prices = ascending_prices[ascending_prices < prev_ascending_prices]
+        n_bad_prices = len(bad_prices)
+    return prices_copy
 
 
 def _repair_misinterpreted_whole_dollars(data, tenor, trade_date_str):
@@ -268,7 +277,7 @@ def _repair_misinterpreted_whole_dollars(data, tenor, trade_date_str):
                 continue    # Apparently no calls or no puts exist for this expiry
             if len(prices) < 2:
                 continue    # Cannot evaluate if only 1 price or none
-            repaired_prices = _correct_price_using_neighbors(prices, half_ticks)
+            repaired_prices = _repair_series(prices, pc, half_ticks, verbose=True)
             # Save and log differences
             diff_indexes = prices[~prices.eq(repaired_prices)].index
             n_corrections = len(diff_indexes)
