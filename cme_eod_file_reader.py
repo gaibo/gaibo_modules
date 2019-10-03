@@ -211,6 +211,26 @@ def _handle_duplicate_series(data):
         return data_indexed.loc[~data_indexed.index.duplicated()].reset_index().reset_index(drop=True)
 
 
+def _correct_price_against_standard(price, standard, half_ticks=False):
+    """ Utility: Price repair error leeway logic for _repair_series (to prevent incorrect cascades)
+    :param price: price in question
+    :param standard: "correct" value against which price is compared
+    :param half_ticks: True means half ticks are possible (2- and some of 5-year)
+    :return: "correct" price, whether a multiplier is applied or not
+    """
+    if half_ticks:
+        multiplier = 640    # Additional 10x multiplier due to half-tick formatting
+    else:
+        multiplier = 64
+    if abs(price*multiplier - standard) < abs(price - standard):
+        # Likely price was a whole dollar value mixed in with ticks (it is way too small);
+        # restore price back to dollar
+        return price*multiplier
+    else:
+        # Likely price was just priced badly; do not try to correct it
+        return price
+
+
 def _repair_series(prices, pc, half_ticks=False, verbose=False):
     """ Utility: Price repair logic for _repair_misinterpreted_whole_dollars()
     :param prices: series prices (indexed and sorted by strike)
@@ -219,11 +239,6 @@ def _repair_series(prices, pc, half_ticks=False, verbose=False):
     :param verbose: True prints every correction that is made
     :return: prices series with corrections made
     """
-    # Set multiplier to "correct" prices from being interpreted as ticks to dollars
-    if half_ticks:
-        multiplier = 640
-    else:
-        multiplier = 64
     # Fix prices one at a time
     prices_copy = prices.copy()
     if pc == 'C':
@@ -233,23 +248,31 @@ def _repair_series(prices, pc, half_ticks=False, verbose=False):
     # Get for each strike the price that should be just lower than its price
     prev_ascending_prices = ascending_prices.shift()
     # Find locations where pricing is inverted
-    bad_prices = ascending_prices[ascending_prices < prev_ascending_prices]
+    is_bad_price = ascending_prices < prev_ascending_prices
+    bad_prices = ascending_prices[is_bad_price]
     n_bad_prices = len(bad_prices)
+    acceptable_error_indexes_list = []
     while n_bad_prices > 0:
         # Correct smallest bad price, since cascade is possible
         bad_price = bad_prices.iloc[0]
         bad_price_index = bad_prices.index[0]
         standard = prev_ascending_prices[bad_price_index]
-        corrected_price = bad_price * multiplier
+        corrected_price = _correct_price_against_standard(bad_price, standard, half_ticks)
         if corrected_price < standard:
-            # Should never happen - multiplier was not enough
-            return None
-        if verbose:
-            print("_repair_series: Bad price {} corrected to {} since it must be greater than {}."
-                  .format(bad_price, corrected_price, standard))
-        ascending_prices.loc[bad_price_index] = corrected_price     # This propagates to prices_copy
+            acceptable_error_indexes_list.append(bad_price_index)
+            if verbose:
+                print("_repair_series: Bad price {} left as is, though it should be greater than {}."
+                      .format(bad_price, standard))
+        else:
+            ascending_prices.loc[bad_price_index] = corrected_price     # This propagates to prices_copy
+            if verbose:
+                print("_repair_series: Bad price {} corrected to {} since it must be greater than {}."
+                      .format(bad_price, corrected_price, standard))
         prev_ascending_prices = ascending_prices.shift()
-        bad_prices = ascending_prices[ascending_prices < prev_ascending_prices]
+        is_bad_price = ascending_prices.lt(prev_ascending_prices)
+        for index in acceptable_error_indexes_list:
+            is_bad_price[index] = False
+        bad_prices = ascending_prices[is_bad_price]
         n_bad_prices = len(bad_prices)
     return prices_copy
 
