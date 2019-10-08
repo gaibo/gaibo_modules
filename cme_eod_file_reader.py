@@ -1,4 +1,5 @@
 import pandas as pd
+from numpy import floor
 from options_futures_expirations_v2 import last_friday
 
 REASONABLE_DOLLAR_STRIKE_LIMIT = 300    # $300 on a $100 face value is pushing it
@@ -6,7 +7,7 @@ REASONABLE_DOLLAR_PRICE_LIMIT = 120     # $120 premium on $100 face value is pus
 EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/{}Y/EOD/Unzipped/'
 EOD_FILENAME_TEMPLATE = '{}y_{}_EOD_raw_{}.csv'
 FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE = pd.Timestamp('2008-03-03')
-TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR = '2017-08-28'
+RANDOM_BAD_E_SETTLEMENT_DATE_STR = '2017-08-28'
 
 
 def _handle_expirations(data):
@@ -122,6 +123,68 @@ def _handle_pf_settlement_prices(data, tenor, trade_date_str):
     return data_copy
 
 
+def _handle_e_2017_08_28(data, tenor):
+    """ Utility: Really complicated logic to back out legitimate data from the
+        extremely mishandled 2017-08-28 "e" files
+        2- and 5-year conversion from "p" file settlement format to "e" is as follows:
+            tens = p//1000, tens_remainder = p%1000
+            ones = tens_remainder//64, ticks = ones%64
+            e = tens*10 + ones + ticks*(25/1024)
+        10- and 30-year conversion from "p" file settlement format to "e" is as follows:
+            ones = p//100, ticks = p%100
+            e = ones + ticks*(25/1024)
+        We reverse these processes and convert directly to dollar
+    :param data: DataFrame from read_eod_file
+    :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
+    :return: DataFrame with settlement prices in dollars
+    """
+    special_tick = 25/1024  # Used instead of 1/64 for some reason (it is (1/64)**2 * 100?)
+    one_64th = 1/64     # Must convert these to 0
+    one_128th = one_64th/2  # Must convert these to 0
+
+    # Back out the "whole dollars" and "whole ticks" which were used to create "e" prices
+    # NOTE: these dollars and ticks are misnomers - they may neeed to be reformatted before dollar conversion
+    prices = data['Settlement'].copy()
+    prices[(prices == one_64th) | (prices == one_128th)] = 0  # Correspond to 0s in "p" file
+    # Case 1: ticks do not create an extra dollar
+    prices_floor = floor(prices)
+    prices_floor_remainder = prices - prices_floor
+    possible_whole_ticks_1 = prices_floor_remainder / special_tick
+    # Case 2: ticks create an extra dollar (64*special_tick = 1.5625, so 1 extra dollar possible)
+    prices_floor_minus_one = prices_floor - 1
+    prices_floor_minus_one[prices_floor_minus_one < 0] = 0
+    prices_floor_minus_one_remainder = prices - prices_floor_minus_one
+    possible_whole_ticks_2 = prices_floor_minus_one_remainder / special_tick
+    # Extract whole number ticks
+    whole_ticks = pd.Series(None, index=prices.index)
+    whole_ticks_1_is_good = abs(possible_whole_ticks_1 - round(possible_whole_ticks_1)) < 0.0001
+    whole_ticks_2_is_good = abs(possible_whole_ticks_2 - round(possible_whole_ticks_2)) < 0.0001
+    whole_ticks[whole_ticks_1_is_good] = round(possible_whole_ticks_1[whole_ticks_1_is_good])
+    whole_ticks[whole_ticks_2_is_good] = round(possible_whole_ticks_2[whole_ticks_2_is_good])
+    # Check for errors
+    bad_prices = prices[whole_ticks.isna()]
+    if len(bad_prices) > 0:
+        print("WARNING: Un-fixable prices found on 2017-08-28: {}.".format(bad_prices))
+    # Get corresponding whole dollars
+    whole_dollars = pd.Series(None, index=prices.index)
+    whole_dollars[whole_ticks_1_is_good] = prices_floor[whole_ticks_1_is_good]
+    whole_dollars[whole_ticks_2_is_good] = prices_floor_minus_one[whole_ticks_2_is_good]
+
+    # Convert to actual dollars
+    if tenor in [2, 5]:
+        # 2- and 5-year require extra reformatting due to additional mishandling of half-ticks
+        actual_dollars = whole_dollars.values // 10     # Using .values to sidestep PyCharm inspection
+        actual_ticks = ((whole_dollars.values % 10)*64 + whole_ticks.values) / 10
+    else:
+        actual_dollars = whole_dollars.values
+        actual_ticks = whole_ticks.values
+    actual_prices = actual_dollars + actual_ticks * one_64th
+
+    data_copy = data.copy()
+    data_copy['Settlement'] = actual_prices
+    return data_copy
+
+
 def _handle_e_settlement_prices(data, tenor, trade_date_str):
     """ Helper: Handle bizarrely-formatted settlement prices for "e" files
     :param data: DataFrame from read_eod_file
@@ -129,13 +192,8 @@ def _handle_e_settlement_prices(data, tenor, trade_date_str):
     :param trade_date_str: trade date as a string, e.g. '2019-03-21'
     :return: DataFrame with settlement prices in dollars
     """
-    if (tenor == 2 or tenor == 5) and trade_date_str == TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR:
-        data_copy = data.copy()
-        data_copy['Settlement'] /= 10
-        print("WARNING: This day ({}) has unexplainable 'e' prices for 2- and 5-year. "
-              "Settlements do not match to whole ticks and seem to be 10x those of 'p'/'f'."
-              .format(TWO_FIVE_YEAR_RANDOM_BAD_E_SETTLEMENT_DATE_STR))
-        return data_copy
+    if trade_date_str == RANDOM_BAD_E_SETTLEMENT_DATE_STR:
+        return _handle_e_2017_08_28(data, tenor)
     else:
         return data
 
