@@ -372,15 +372,20 @@ def _repair_misinterpreted_whole_dollars(data, tenor, trade_date_str):
     return data_indexed.reset_index()
 
 
-def read_eod_file(tenor, trade_date_str, letter, file_dir=None, file_name=None):
+def read_eod_file(tenor, trade_date, letter, file_dir=None, file_name=None):
     """ Read CME EOD Treasury files from disk and load them into consistently formatted DataFrames
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
-    :param trade_date_str: trade date as a string, e.g. '2019-03-21'
+    :param trade_date: trade date as date object or string, e.g. '2019-03-21'
     :param letter: 'e' (available starting 2019-02-25), 'p', or 'f'
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
     :return: pd.DataFrame with consistent and labeled columns
     """
+    # Ensure string version of trade date is available
+    if isinstance(trade_date, str):
+        trade_date_str = trade_date
+    else:
+        trade_date_str = trade_date.strftime('%Y-%m-%d')
     # Use default directory and file name templates
     if file_dir is None:
         file_dir = EOD_FILEDIR_TEMPLATE.format(tenor)
