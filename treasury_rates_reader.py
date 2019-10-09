@@ -28,6 +28,7 @@ def load_treasury_rates(file_dir=None, file_name=None):
 
 def get_treasury_rate(loaded_rates, date, days_to_maturity):
     """ Get a forward-filled and interpolated Treasury rate from DataFrame
+        NOTE: no vectorized input and output implemented
     :param loaded_rates: DataFrame loaded through load_treasury_rates
     :param date: date on which to obtain rate (can be string or object)
     :param days_to_maturity: number of days to maturity at which rate is interpolated
