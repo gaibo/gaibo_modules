@@ -1,5 +1,7 @@
 import pandas as pd
 
+TREASURY_FUT_CSV_FILEDIR = 'P:/PrdDevSharedDB/BBG Pull Scripts/'
+TREASURY_FUT_CSV_FILENAME = 'treasury_futures_pull.csv'
 TENOR_TO_CODE_DICT = {2: 'TU', 5: 'FV', 10: 'TY', 30: 'US'}
 EXPMONTH_CODES_DICT = {1: 'F', 2: 'G', 3: 'H', 4: 'J', 5: 'K', 6: 'M',
                        7: 'N', 8: 'Q', 9: 'U', 10: 'V', 11: 'X', 12: 'Z'}
@@ -16,9 +18,28 @@ def undl_fut_quarter_month(opt_contr_month):
     return (((opt_contr_month-1) // 3) + 1) * 3
 
 
+def load_fut_prices(file_dir=None, file_name=None):
+    """ Read Treasury futures prices from disk and load them into a DataFrame
+    :param file_dir: optional directory to search for data file (overrides default directory)
+    :param file_name: optional exact file name to load from file_dir (overrides default file name)
+    :return: pd.DataFrame with Treasury futures prices
+    """
+    # Use default directory and file name
+    if file_dir is None:
+        file_dir = TREASURY_FUT_CSV_FILEDIR
+    if file_name is None:
+        file_name = TREASURY_FUT_CSV_FILENAME
+    # Load designated CSV containing Treasury futures prices
+    try:
+        return pd.read_csv(file_dir + file_name, index_col=0, parse_dates=True, header=[0, 1])
+    except FileNotFoundError:
+        print("ERROR: '{}' Treasury futures prices file not found.".format(file_dir+file_name))
+        return None
+
+
 def get_fut_price(data, tenor, trade_date, opt_contr_year, opt_contr_month, opt_exp_date=None):
     """ Retrieve Treasury options' underlying futures price from Bloomberg-exported data
-    :param data: Bloomberg-formatted dataset
+    :param data: Bloomberg-formatted dataset loaded via load_fut_prices
     :param tenor: 2, 5, 10, 30, etc. (-year Treasury futures)
     :param trade_date: trade date on which to get price
     :param opt_contr_year: option contract year
