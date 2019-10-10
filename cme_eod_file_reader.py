@@ -139,13 +139,14 @@ def _handle_e_2017_08_28(data, tenor):
     :return: DataFrame with settlement prices in dollars
     """
     special_tick = 25/1024  # Used instead of 1/64 for some reason (it is (1/64)**2 * 100?)
-    one_64th = 1/64     # Must convert these to 0
-    one_128th = one_64th/2  # Must convert these to 0
+    one_64th = 1/64     # Must convert these to 0 in 5-year
+    one_128th = one_64th/2  # Must convert these to 0 in 2-year
+    one_640th = one_64th/10     # Must convert these to 0 in 10- and 30-year
 
     # Back out the "whole dollars" and "whole ticks" which were used to create "e" prices
     # NOTE: these dollars and ticks are misnomers - they may neeed to be reformatted before dollar conversion
     prices = data['Settlement'].copy()
-    prices[(prices == one_64th) | (prices == one_128th)] = 0  # Correspond to 0s in "p" file
+    prices[(prices == one_64th) | (prices == one_128th) | (prices == one_640th)] = 0  # Match 0s in "p" file
     # Case 1: ticks do not create an extra dollar
     prices_floor = floor(prices)
     prices_floor_remainder = prices - prices_floor
