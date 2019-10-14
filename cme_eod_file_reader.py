@@ -4,7 +4,7 @@ from options_futures_expirations_v2 import last_friday
 
 REASONABLE_DOLLAR_STRIKE_LIMIT = 300    # $300 on a $100 face value is pushing it
 REASONABLE_DOLLAR_PRICE_LIMIT = 120     # $120 premium on $100 face value is pushing it
-EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/{}Y/EOD/Unzipped/'
+EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/{}y/EOD/Unzipped/'
 EOD_FILENAME_TEMPLATE = '{}y_{}_EOD_raw_{}.csv'
 FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE = pd.Timestamp('2008-03-03')
 RANDOM_BAD_E_SETTLEMENT_DATE_STR = '2017-08-28'
