@@ -63,3 +63,30 @@ def vega_b76(t, k, f, r, sigma):
     """
     d1 = (np.log(f/k) + (sigma**2/2)*t) / (sigma*np.sqrt(t))
     return np.exp(-r*t)*f * norm.pdf(d1)*np.sqrt(t) * 0.01
+
+
+def delta_b76(is_call, t, k, f, r, sigma):
+    """ Calculate delta of options using Black-76 model (options on futures, bond options, swaptions, etc.)
+    :param is_call: Boolean for whether it is a call option
+    :param t: time to expiry in years
+    :param k: strike
+    :param f: forward price
+    :param r: risk-free rate
+    :param sigma: implied volatility
+    :return: delta as a number or array of numbers, depending on input format
+    """
+    d1 = (np.log(f/k) + (sigma**2/2)*t) / (sigma*np.sqrt(t))
+    if isinstance(is_call, bool):
+        # Single number form
+        if is_call:
+            return np.exp(-r*t) * norm.cdf(d1)
+        else:
+            return np.exp(-r*t) * (norm.cdf(d1) - 1)
+    else:
+        # Array form
+        arr_out = np.zeros_like(sigma)
+        call_arr = np.exp(-r*t) * norm.cdf(d1)
+        put_arr = np.exp(-r*t) * (norm.cdf(d1) - 1)
+        arr_out[is_call] = call_arr[is_call]
+        arr_out[~is_call] = put_arr[~is_call]
+        return arr_out
