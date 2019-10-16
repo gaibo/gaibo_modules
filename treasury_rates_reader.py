@@ -26,31 +26,33 @@ def load_treasury_rates(file_dir=None, file_name=None):
         return None
 
 
-def get_treasury_rate(loaded_rates, date, days_to_maturity):
+def get_treasury_rate(loaded_rates, date, time_to_maturity, time_in_years=False):
     """ Get a forward-filled and interpolated Treasury rate from DataFrame
         NOTE: no vectorized input and output implemented
     :param loaded_rates: DataFrame loaded through load_treasury_rates
     :param date: date on which to obtain rate (can be string or object)
-    :param days_to_maturity: number of days to maturity at which rate is interpolated
+    :param time_to_maturity: number of days to maturity at which rate is interpolated
+    :param time_in_years: set True if time_to_maturity is in years instead of days
     :return: numerical Treasury rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
     """
     if not isinstance(date, pd.Timestamp):
-        # Ensure date is in pandas Timestamp format
-        date = pd.Timestamp(date)
+        date = pd.Timestamp(date)   # Ensure date is in pandas Timestamp format
+    if time_in_years:
+        time_to_maturity *= 365     # Convert to days
     # Get date's available rates by
     # 1) forward-filling if date not available and 2) dropping maturities that are not available
     day_rates = loaded_rates.loc[:date].fillna(method='ffill').iloc[-1].dropna()
     day_available_maturity_days_dict = {MATURITY_NAME_TO_DAYS_DICT[name]: name
                                         for name in day_rates.index}
     day_available_maturity_names = list(day_available_maturity_days_dict.values())
-    # Get the maturity just shorter and just longer than the desired days_to_maturity
+    # Get the maturity just shorter and just longer than the desired time_to_maturity
     shorter_maturity_name = day_available_maturity_names[0]
     longer_maturity_name = day_available_maturity_names[-1]
     for days, name in day_available_maturity_days_dict.items():
-        if days_to_maturity >= days:
+        if time_to_maturity >= days:
             # Move shorter maturity towards longer each loop
             shorter_maturity_name = name
-        if days_to_maturity <= days:
+        if time_to_maturity <= days:
             # If longer maturity is found, convergence has been found
             longer_maturity_name = name
             break
@@ -62,6 +64,6 @@ def get_treasury_rate(loaded_rates, date, days_to_maturity):
         shorter_days = MATURITY_NAME_TO_DAYS_DICT[shorter_maturity_name]
         longer_rate = day_rates[longer_maturity_name]
         longer_days = MATURITY_NAME_TO_DAYS_DICT[longer_maturity_name]
-        shorter_proportion = (longer_days - days_to_maturity) / (longer_days - shorter_days)
+        shorter_proportion = (longer_days - time_to_maturity) / (longer_days - shorter_days)
         longer_proportion = 1 - shorter_proportion
         return shorter_proportion*shorter_rate + longer_proportion*longer_rate
