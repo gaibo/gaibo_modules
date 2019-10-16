@@ -84,5 +84,5 @@ def add_forward(data, trade_date_col='trade_date', exp_date_col='exp_date', stri
     t = c_minus_p_min_df[days_to_exp_col]/365
     c_p = c_minus_p_min_df['c_minus_p']
     forward_df = k + np.exp(-r*t)*c_p
-    data_indexed_with_forward = data_indexed.join(forward_df.rename(new_forward_col), how='left')
+    data_indexed_with_forward = data_indexed.join(forward_df.rename(new_forward_col), how='inner')
     return data_indexed_with_forward.reset_index()
