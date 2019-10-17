@@ -1,3 +1,4 @@
+import pandas as pd
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import root
@@ -33,6 +34,7 @@ def black_76(is_call, t, k, f, r, sigma):
 
 def implied_vol_b76(is_call, t, k, f, r, prem):
     """ Back out implied volatility of options using Black-76 model (options on futures, bond options, swaptions, etc.)
+        NOTE: when inputs are arrays, function handles memory errors by reducing size of arrays into operable segments
     :param is_call: Boolean for whether it is a call option
     :param t: time to expiry in years
     :param k: strike
@@ -41,15 +43,39 @@ def implied_vol_b76(is_call, t, k, f, r, prem):
     :param prem: option price
     :return: option implied volatility as a number or array of numbers, depending on input format
     """
-    solved_root = \
-        root(lambda sigma: black_76(is_call, t, k, f, r, sigma) - prem,
-             x0=np.ones_like(prem), tol=None)
     if isinstance(is_call, bool):
         # Single number form
+        solved_root = \
+            root(lambda sigma: black_76(is_call, t, k, f, r, sigma) - prem,
+                 x0=np.ones_like(prem), tol=None)
         return solved_root.x[0]
     else:
         # Array form
-        return solved_root.x
+        full_size = len(is_call)
+        iv_results = np.zeros_like(prem)    # Pre-allocated results array
+        subsegment_size = full_size     # Size of array to work on
+        subsegment_start = 0
+        while subsegment_start < full_size:
+            subsegment_slice = pd.IndexSlice[subsegment_start:subsegment_start+subsegment_size]
+            try:
+                is_call_seg = is_call[subsegment_slice]
+                t_seg = t[subsegment_slice]
+                k_seg = k[subsegment_slice]
+                f_seg = f[subsegment_slice]
+                r_seg = r[subsegment_slice]
+                prem_seg = prem[subsegment_slice]
+                solved_root = \
+                    root(lambda sigma: black_76(is_call_seg, t_seg, k_seg, f_seg, r_seg, sigma) - prem_seg,
+                         x0=np.ones_like(prem_seg), tol=None)
+                iv_results[subsegment_slice] = solved_root.x
+                subsegment_start += subsegment_size
+                if subsegment_start < full_size:
+                    print("Starting next sub-segment of {:,} at {:,}...".format(subsegment_size, subsegment_start))
+            except MemoryError:
+                print("Memory error with {:,} rows, re-trying with segments half that size..."
+                      .format(subsegment_size))
+                subsegment_size //= 2
+        return iv_results
 
 
 def vega_b76(t, k, f, r, sigma):
