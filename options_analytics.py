@@ -1,4 +1,3 @@
-import pandas as pd
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import root
@@ -16,8 +15,8 @@ def black_76(is_call, t, k, f, r, sigma):
     """
     d1 = (np.log(f/k) + (sigma**2/2)*t) / (sigma*np.sqrt(t))
     d2 = d1 - sigma*np.sqrt(t)
-    if isinstance(is_call, bool):
-        # Single number form
+    if isinstance(is_call, (bool, np.generic)):
+        # Single number form (np.generic checks for numpy scalars)
         if is_call:
             return np.exp(-r * t) * (f * norm.cdf(d1) - k * norm.cdf(d2))
         else:
@@ -32,9 +31,17 @@ def black_76(is_call, t, k, f, r, sigma):
         return arr_out
 
 
+def _implied_vol_b76_single_element(is_call, t, k, f, r, prem):
+    """ Return the optimization yielding implied volatility
+        NOTE: all inputs must be single elements, not vectors
+    """
+    solved_root = root(lambda sigma: black_76(is_call, t, k, f, r, sigma) - prem,
+                       x0=np.array(1), tol=None)
+    return solved_root.x[0]
+
+
 def implied_vol_b76(is_call, t, k, f, r, prem):
     """ Back out implied volatility of options using Black-76 model (options on futures, bond options, swaptions, etc.)
-        NOTE: when inputs are arrays, function handles memory errors by reducing size of arrays into operable segments
     :param is_call: Boolean for whether it is a call option
     :param t: time to expiry in years
     :param k: strike
@@ -43,38 +50,15 @@ def implied_vol_b76(is_call, t, k, f, r, prem):
     :param prem: option price
     :return: option implied volatility as a number or array of numbers, depending on input format
     """
-    if isinstance(is_call, bool):
-        # Single number form
-        solved_root = \
-            root(lambda sigma: black_76(is_call, t, k, f, r, sigma) - prem,
-                 x0=np.ones_like(prem), tol=None)
-        return solved_root.x[0]
+    if isinstance(is_call, (bool, np.generic)):
+        # Single number form (np.generic checks for numpy scalars)
+        return _implied_vol_b76_single_element(is_call, t, k, f, r, prem)
     else:
         # Array form
-        full_size = len(is_call)
-        iv_results = np.zeros_like(prem)    # Pre-allocated results array
-        subsegment_size = full_size     # Size of array to work on
-        subsegment_start = 0
-        while subsegment_start < full_size:
-            subsegment_slice = pd.IndexSlice[subsegment_start:subsegment_start+subsegment_size]
-            try:
-                is_call_seg = is_call[subsegment_slice]
-                t_seg = t[subsegment_slice]
-                k_seg = k[subsegment_slice]
-                f_seg = f[subsegment_slice]
-                r_seg = r[subsegment_slice]
-                prem_seg = prem[subsegment_slice]
-                solved_root = \
-                    root(lambda sigma: black_76(is_call_seg, t_seg, k_seg, f_seg, r_seg, sigma) - prem_seg,
-                         x0=np.ones_like(prem_seg), tol=None)
-                iv_results[subsegment_slice] = solved_root.x
-                subsegment_start += subsegment_size
-                if subsegment_start < full_size:
-                    print("Starting next sub-segment of {:,} at {:,}...".format(subsegment_size, subsegment_start))
-            except MemoryError:
-                print("Memory error with {:,} rows, re-trying with segments half that size..."
-                      .format(subsegment_size))
-                subsegment_size //= 2
+        iv_results = np.empty_like(prem)
+        iv_results[:] = np.NaN  # Make obvious if a calculation is unsuccessful
+        for i, single_element_bundle in enumerate(zip(is_call, t, k, f, r, prem)):
+            iv_results[i] = _implied_vol_b76_single_element(*single_element_bundle)
         return iv_results
 
 
@@ -102,8 +86,8 @@ def delta_b76(is_call, t, k, f, r, sigma):
     :return: delta as a number or array of numbers, depending on input format
     """
     d1 = (np.log(f/k) + (sigma**2/2)*t) / (sigma*np.sqrt(t))
-    if isinstance(is_call, bool):
-        # Single number form
+    if isinstance(is_call, (bool, np.generic)):
+        # Single number form (np.generic checks for numpy scalars)
         if is_call:
             return np.exp(-r*t) * norm.cdf(d1)
         else:
