@@ -3,6 +3,29 @@ import numpy as np
 from treasury_rates_reader import load_treasury_rates, get_treasury_rate
 
 
+def remove_duplicate_series(data, trade_date_col='trade_date', exp_date_col='exp_date',
+                            strike_col='strike', cp_col='cp', volume_col='volume'):
+    """ Remove duplicate series, ideally retaining series with highest volume
+        NOTE: this is necessary to avoid unleashing permutations when duplicate
+              series serve as indexes for join operations down the line
+    :param data: unindexed input DataFrame containing all fields
+    :param trade_date_col: column name of trade/quote dates
+    :param exp_date_col: column name of expiration dates
+    :param strike_col: column name of strikes
+    :param cp_col: column name of call-put indicator (can be Boolean or 'C' and 'P')
+    :param volume_col: column name of volume traded; set None if volume not available
+    :return: unindexed DataFrame that is copy of input with no duplicate series
+    """
+    series_cols = [trade_date_col, exp_date_col, strike_col, cp_col]
+    if volume_col is None:
+        # Arbitrarily retain last series
+        return data.drop_duplicates(series_cols, keep='last')
+    else:
+        # Sort by ascending volume, then retain last series
+        return (data.sort_values(series_cols + [volume_col])
+                    .drop_duplicates(series_cols, keep='last'))
+
+
 def add_t_to_exp(data, trade_date_col='trade_date', exp_date_col='exp_date',
                  new_t_to_exp_col='t_to_exp'):
     """ Calculate time to expiration and add it to DataFrame
@@ -70,6 +93,9 @@ def add_forward(data, trade_date_col='trade_date', exp_date_col='exp_date', stri
     # Create DataFrame with only strikes with both call and put (need both for forward)
     calls = data_indexed.loc[is_call]
     puts = data_indexed.loc[~is_call]
+    if calls.index.duplicated().sum() > 0 or puts.index.duplicated().sum() > 0:
+        print("ERROR add_forward(): Duplicate series exist in data.")
+        return data
     cp_df = calls[[price_col]].join(puts[[price_col]], how='inner', lsuffix='_C', rsuffix='_P')
     # Determine current strikes for each series at which call price and put price are closest
     cp_df['c_minus_p'] = cp_df[price_col+'_C'] - cp_df[price_col+'_P']
