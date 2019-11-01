@@ -32,7 +32,7 @@ def black_76(is_call, t, k, f, r, sigma):
 
 
 def _implied_vol_b76_single_element(is_call, t, k, f, r, prem):
-    """ Return the optimization yielding implied volatility
+    """ Return the optimization yielding implied volatility; may return negative numbers
         NOTE: all inputs must be single elements, not vectors
     """
     solved_root = root(lambda sigma: black_76(is_call, t, k, f, r, sigma) - prem,
@@ -52,13 +52,14 @@ def implied_vol_b76(is_call, t, k, f, r, prem):
     """
     if isinstance(is_call, (bool, np.generic)):
         # Single number form (np.generic checks for numpy scalars)
-        return _implied_vol_b76_single_element(is_call, t, k, f, r, prem)
+        iv_result = _implied_vol_b76_single_element(is_call, t, k, f, r, prem)
+        return iv_result if iv_result >= 0 else np.NaN  # Reject negative optimization result - doesn't make sense as IV
     else:
         # Array form
         iv_results = np.empty_like(prem)
-        iv_results[:] = np.NaN  # Make obvious if a calculation is unsuccessful
         for i, single_element_bundle in enumerate(zip(is_call, t, k, f, r, prem)):
             iv_results[i] = _implied_vol_b76_single_element(*single_element_bundle)
+        iv_results[iv_results < 0] = np.NaN     # Reject negative optimization results - don't make sense as IV
         return iv_results
 
 
