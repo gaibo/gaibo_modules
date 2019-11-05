@@ -8,37 +8,93 @@ DAY_NAME_TO_WEEKDAY_NUMBER_DICT = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'T
 
 
 ###############################################################################
-# Helper functions
+# Utilities
 
-# Function for converting date-like representations to pd.Timestamp, for consistency
 def datelike_to_timestamp(datelike):
+    """ Convert date-like representations to pd.Timestamp, for consistency
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :return: pd.Timestamp version of date
+    """
     if not isinstance(datelike, pd.Timestamp):
         return pd.to_datetime(datelike)
     else:
         return datelike
 
 
-# Return the previous business day using CustomBusinessDay with Cboe trading calendar
-# Useful because CME expirations/maturities are sometimes defined as a certain
-# number of days from the last business day (e.g. Treasury futures and options)
 def get_prev_business_day(datelike):
+    """ Return previous business day using CustomBusinessDay with Cboe trading calendar
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :return: pd.Timestamp
+    """
     date = datelike_to_timestamp(datelike)
     return date - BUSDAY_OFFSET
 
 
-# Find expiration/maturity date defined as "n business days before the last
-# business day of the month" (e.g. treasury futures and options)
 def n_before_last_bus_day(datelike_in_month, n):
+    """ Find date that is "n days preceding the last business day of the month";
+        useful for certain expiries/maturities (e.g. Treasury options and futures)
+    :param datelike_in_month: date-like representation of any day in the month
+    :param n: number of days preceding last business day of month
+    :return: pd.Timestamp
+    """
     date_in_month = datelike_to_timestamp(datelike_in_month)
     next_month_first = date_in_month.replace(day=1) + pd.DateOffset(months=1)
     this_month_last_bd = next_month_first - BUSDAY_OFFSET
     return this_month_last_bd - n*BUSDAY_OFFSET
 
 
-# Return the date with month changed to the next quarterly month
-# NOTE: default is [3, 3, 6, 6, 6, 9, 9, 9, 12, 12, 12, 3], i.e. quarterly months return
-#       the next quarterly month; to return itself, set quarter_return_self to True
+###############################################################################
+# Simple next and previous iteration
+
+def next_weekday(datelike, weekday_number, weekday_return_self=False):
+    """ Return date of the next day-of-week specified
+        NOTE: default return one week forward if current weekday is the desired day-of-week;
+              to return current date, set weekday_return_self to True
+        NOTE: see DAY_NAME_TO_WEEKDAY_NUMBER_DICT for day-of-week conversion
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :param weekday_number: numbering starts with 0 for Monday and goes through 6 for Sunday
+    :param weekday_return_self: set True to include current date in consideration
+    :return: pd.Timestamp
+    """
+    date = datelike_to_timestamp(datelike)
+    days_ahead = weekday_number - date.weekday()
+    # Account for date already being past this week's desired day-of-week
+    if weekday_return_self:
+        days_ahead = days_ahead if days_ahead >= 0 else days_ahead + 7
+    else:
+        days_ahead = days_ahead if days_ahead > 0 else days_ahead + 7
+    return date + pd.DateOffset(days=days_ahead)
+
+
+def prev_weekday(datelike, weekday_number, weekday_return_self=False):
+    """ Return date of the previous day-of-week specified
+        NOTE: default return one week backward if current weekday is the desired day-of-week;
+              to return current date, set weekday_return_self to True
+        NOTE: see DAY_NAME_TO_WEEKDAY_NUMBER_DICT for day-of-week conversion
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :param weekday_number: numbering starts with 0 for Monday and goes through 6 for Sunday
+    :param weekday_return_self: set True to include current date in consideration
+    :return: pd.Timestamp
+    """
+    date = datelike_to_timestamp(datelike)
+    days_behind = date.weekday() - weekday_number
+    # Account for date already being before this week's desired day-of-week
+    if weekday_return_self:
+        days_behind = days_behind if days_behind >= 0 else days_behind + 7
+    else:
+        days_behind = days_behind if days_behind > 0 else days_behind + 7
+    return date - pd.DateOffset(days=days_behind)
+
+
 def next_quarterly_month(datelike, quarter_return_self=False):
+    """ Return date with month changed to the next quarterly month
+        NOTE: default map is [3, 3, 6, 6, 6, 9, 9, 9, 12, 12, 12, 3], i.e. quarterly month
+              returns the next quarterly month (allows iterative use of function);
+              to return itself, set quarter_return_self to True
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :param quarter_return_self: set True to map [3, 3, 3, 6, 6, 6, 9, 9, 9, 12, 12, 12]
+    :return: pd.Timestamp
+    """
     date = datelike_to_timestamp(datelike)
     date_month = date.month
     if quarter_return_self:
@@ -52,10 +108,15 @@ def next_quarterly_month(datelike, quarter_return_self=False):
     return date.replace(month=next_quarter_month) + pd.DateOffset(years=year_increment)
 
 
-# Return the date with month changed to the previous quarterly month
-# NOTE: default is [12, 12, 12, 3, 3, 3, 6, 6, 6, 9, 9, 9], i.e. quarterly months return
-#       the previous quarterly month; to return itself, set quarter_return_self to True
 def prev_quarterly_month(datelike, quarter_return_self=False):
+    """ Return date with month changed to the previous quarterly month
+        NOTE: default map is [12, 12, 12, 3, 3, 3, 6, 6, 6, 9, 9, 9], i.e. quarterly month
+              returns the previous quarterly month (allows iterative use of function);
+              to return itself, set quarter_return_self to True
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :param quarter_return_self: set True to map [12, 12, 3, 3, 3, 6, 6, 6, 9, 9, 9, 12]
+    :return: pd.Timestamp
+    """
     date = datelike_to_timestamp(datelike)
     date_month = date.month
     if quarter_return_self:
@@ -69,43 +130,15 @@ def prev_quarterly_month(datelike, quarter_return_self=False):
     return date.replace(month=prev_quarter_month) - pd.DateOffset(years=year_decrement)
 
 
-# Return the date of the next day-of-week specified; see DAY_NAME_TO_WEEKDAY_NUMBER_DICT
-# for day-of-week conversion
-# NOTE: default return one week forward if current weekday is the desired day-of-week;
-#       to return current date, set weekday_return_self to True
-def next_weekday(datelike, weekday_number, weekday_return_self=False):
-    date = datelike_to_timestamp(datelike)
-    days_ahead = weekday_number - date.weekday()
-    # Account for date already being past this week's desired day-of-week
-    if weekday_return_self:
-        days_ahead = days_ahead if days_ahead >= 0 else days_ahead + 7
-    else:
-        days_ahead = days_ahead if days_ahead > 0 else days_ahead + 7
-    return date + pd.DateOffset(days=days_ahead)
-
-
-# Return the date of the previous day-of-week specified; see DAY_NAME_TO_WEEKDAY_NUMBER_DICT
-# for day-of-week conversion
-# NOTE: default return one week back if current weekday is the desired day-of-week;
-#       to return current date, set weekday_return_self to True
-def prev_weekday(datelike, weekday_number, weekday_return_self=False):
-    date = datelike_to_timestamp(datelike)
-    days_behind = date.weekday() - weekday_number
-    # Account for date already being before this week's desired day-of-week
-    if weekday_return_self:
-        days_behind = days_behind if days_behind >= 0 else days_behind + 7
-    else:
-        days_behind = days_behind if days_behind > 0 else days_behind + 7
-    return date - pd.DateOffset(days=days_behind)
-
-
 ###############################################################################
-# Expiration date functions
+# Monthly expiration date functions
 
-# Given a date, return the expiration date of month, accounting for holidays,
-# that is based on the third Friday of the month
-# NOTE: return date could be before input date
 def third_friday(datelike_in_month):
+    """ Return third-Friday options expiration date of month
+        NOTE: return date could be before input date; only month (and year) matters
+    :param datelike_in_month: date-like representation of any day in the month
+    :return: pd.Timestamp
+    """
     date_in_month = datelike_to_timestamp(datelike_in_month)
     earliest_third_week_day = date_in_month.replace(day=15)     # 15th is start of third week
     third_week_friday = next_weekday(earliest_third_week_day, 4, weekday_return_self=True)
@@ -113,11 +146,12 @@ def third_friday(datelike_in_month):
     return third_week_friday + BUSDAY_OFFSET - BUSDAY_OFFSET
 
 
-# Given a date, return the expiration date of month, accounting for holidays,
-# that is based on the third Saturday of the month (used instead of third Friday
-# for SPX options up until February 2015)
-# NOTE: return date could be before input date
 def third_saturday(datelike_in_month):
+    """ Return third-Saturday options expiration date of month (SPX, up until 2015-02)
+        NOTE: return date could be before input date; only month (and year) matters
+    :param datelike_in_month: date-like representation of any day in the month
+    :return: pd.Timestamp
+    """
     date_in_month = datelike_to_timestamp(datelike_in_month)
     earliest_third_week_day = date_in_month.replace(day=15)     # 15th is start of third week
     third_week_saturday = next_weekday(earliest_third_week_day, 5, weekday_return_self=True)
@@ -125,11 +159,13 @@ def third_saturday(datelike_in_month):
     return third_week_saturday
 
 
-# Given a date, return the expiration date of month, accounting for holidays,
-# that is based on the last Friday at least 2 business days from the last
-# business day of the month (e.g. treasury futures and options)
-# NOTE: return date could be before input date
 def last_friday(datelike_in_month):
+    """ Return last-Friday (at least 2 business days preceding last business day of month)
+        options expiration date of month (Treasury)
+        NOTE: return date could be before input date; only month (and year) matters
+    :param datelike_in_month: date-like representation of any day in the month
+    :return: pd.Timestamp
+    """
     date_in_month = datelike_to_timestamp(datelike_in_month)
     latest_applicable_day = n_before_last_bus_day(date_in_month, 2)
     latest_applicable_friday = prev_weekday(latest_applicable_day, 4, weekday_return_self=True)
@@ -138,15 +174,20 @@ def last_friday(datelike_in_month):
 
 
 ###############################################################################
+# Complex product expiry/maturity tools
 
-# Given a date, monthly expiry function (returns expiry date of month given day in month),
-# and number of terms, return the designated expiry
-# NOTE: if date given is the expiration date, it will be returned as the "next" expiry
-#       since expiration would technically happen at the end of that day
-# NOTE: set curr_month_as_first_term to True to ensure that expiry for given date's month
-#       will be given as first term, even if date is past month's expiration date
 def next_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
                 curr_month_as_first_term=False):
+    """ Find designated expiration date
+        NOTE: if input date is the expiration date, it will be returned as the "next"
+              expiry, since expiration would technically happen at the end of that day
+    :param datelike_in_month: date-like representation of any day in the month
+    :param expiry_func: monthly expiry function (returns expiration date given day in month)
+    :param n_terms: number of terms forward (1 or more)
+    :param curr_month_as_first_term: set True to force input date's month as the first term,
+                                     even if input date is after month's expiration
+    :return: pd.Timestamp
+    """
     if n_terms <= 0:
         print("ERROR: 0th expiration makes no sense. Please use prev_expiry() for past expiries.")
         return None
@@ -164,14 +205,18 @@ def next_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
         return expiry_func(designated_month_first)
 
 
-# Given a date, monthly expiry function (returns expiry date of month given day in month),
-# and number of terms, return the designated expiry
-# NOTE: if date given is the expiration date, it will NOT be returned as the "previous" expiry
-#       since expiration would technically happen at the end of that day
-# NOTE: set curr_month_as_first_term to True to ensure that expiry for given date's month
-#       will be given as first term, even if date is before month's expiration date
 def prev_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
                 curr_month_as_first_term=False):
+    """ Find designated expiration date
+        NOTE: if input date is the expiration date, it will NOT be returned as the "previous"
+              expiry, since expiration would technically happen at the end of that day
+    :param datelike_in_month: date-like representation of any day in the month
+    :param expiry_func: monthly expiry function (returns expiration date given day in month)
+    :param n_terms: number of terms backward (1 or more)
+    :param curr_month_as_first_term: set True to force input date's month as the first term,
+                                     even if input date is before month's expiration
+    :return: pd.Timestamp
+    """
     if n_terms <= 0:
         print("ERROR: 0th expiration makes no sense. Please use next_expiry() for future expiries.")
         return None
@@ -189,11 +234,16 @@ def prev_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
         return expiry_func(designated_month_first)
 
 
-# Given a date and tenor, return the next Treasury futures maturity, which is the
-# 7th business day preceding the last business day of the next quarterly month
-# NOTE: if date given is the maturity date, it will be returned as the "next" maturity
-#       since maturation would technically happen at the end of that day
 def next_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
+    """ Find designated CBOT Treasury futures maturity date, 7th business day preceding
+        the last business day of the quarterly month
+        NOTE: if input date is the maturity date, it will be returned as the "next"
+              maturity, since maturation would technically happen at the end of that day
+    :param datelike: date-like representation of any day in the month
+    :param n_terms: number of terms forward (1 or more)
+    :param tenor: 2, 5, 10, or 30 for 2-, 5-, 10-, or 30-year Treasury note futures
+    :return: pd.Timestamp
+    """
     if n_terms <= 0:
         print("ERROR: 0th expiration makes no sense.\n"
               "       Please use prev_treasury_futures_maturity() for past expiries.")
@@ -227,11 +277,16 @@ def next_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
         return n_before_last_bus_day(date, n_days_before_last)
 
 
-# Given a date and tenor, return the previous Treasury futures maturity, which is the
-# 7th business day preceding the last business day of the last quarterly month
-# NOTE: if date given is the maturity date, it will NOT be returned as the "previous" maturity
-#       since maturation would technically happen at the end of that day
 def prev_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
+    """ Find designated CBOT Treasury futures maturity date, 7th business day preceding
+        the last business day of the quarterly month
+        NOTE: if input date is the maturity date, it will NOT be returned as the "previous"
+              maturity, since maturation would technically happen at the end of that day
+    :param datelike: date-like representation of any day in the month
+    :param n_terms: number of terms backward (1 or more)
+    :param tenor: 2, 5, 10, or 30 for 2-, 5-, 10-, or 30-year Treasury note futures
+    :return: pd.Timestamp
+    """
     if n_terms <= 0:
         print("ERROR: 0th expiration makes no sense.\n"
               "       Please use next_treasury_futures_maturity() for future expiries.")
