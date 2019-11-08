@@ -323,38 +323,80 @@ def prev_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
 ###############################################################################
 
 if __name__ == '__main__':
-    print("expiry_by_terms on 2019-04-09, 3 terms:\n{}"
+    # next_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
+    #             curr_month_as_first_term=False)
+    print("next_expiry('2019-04-09'):\n{}"
+          .format(next_expiry('2019-04-09')))
+    print("next_expiry('2019-04-09', n_terms=2):\n{}"
+          .format(next_expiry('2019-04-09', n_terms=2)))
+    print("next_expiry('2019-04-09', n_terms=3):\n{}"
           .format(next_expiry('2019-04-09', n_terms=3)))
-    print("expiry_by_terms on 2019-12-09, 1 terms:\n{}"
-          .format(next_expiry('2019-12-09', last_friday, 1)))
-    print("expiry_by_terms on 2019-12-27, 1 terms:\n{}"
-          .format(next_expiry('2019-12-27', last_friday, 1)))
-    print("expiry_by_terms on 2016-03-09, 1 terms:\n{}"
+    print("next_expiry('2019-04-18', n_terms=1):\n{}"
+          .format(next_expiry('2019-04-18', n_terms=1)))
+    print("next_expiry('2019-04-18', n_terms=2):\n{}"
+          .format(next_expiry('2019-04-18', n_terms=2)))
+    print("next_expiry('2019-04-19', n_terms=1, curr_month_as_first_term=True):\n{}"
+          .format(next_expiry('2019-04-19', n_terms=1, curr_month_as_first_term=True)))
+    print("prev_expiry('2019-06-22', n_terms=3):\n{}"
+          .format(prev_expiry('2019-06-22', n_terms=3)))
+    print("prev_expiry('2019-05-17', n_terms=2, curr_month_as_first_term=True):\n{}"
+          .format(prev_expiry('2019-05-17', n_terms=2, curr_month_as_first_term=True)))
+    print("next_expiry('2016-03-09', last_friday, 1):\n{}"
           .format(next_expiry('2016-03-09', last_friday, 1)))
-    print("expiry_by_terms on 2016-02-09, 2 terms:\n{}"
-          .format(next_expiry('2016-02-09', last_friday, 2)))
-    print("next_ty_futures_maturity on 2019-02-09:\n{}"
+    print("next_expiry('2016-03-09', expiry_func=last_friday, n_terms=12):\n{}"
+          .format(next_expiry('2016-03-09', expiry_func=last_friday, n_terms=12)))
+    print("prev_expiry('2017-02-24', expiry_func=last_friday, n_terms=12,\n"
+          "            curr_month_as_first_term=True):\n{}"
+          .format(prev_expiry('2017-02-24', expiry_func=last_friday, n_terms=12,
+                              curr_month_as_first_term=True)))
+    # next_treasury_futures_maturity(datelike, n_terms=1, tenor=10)
+    print("next_treasury_futures_maturity('2019-02-09'):\n{}"
           .format(next_treasury_futures_maturity('2019-02-09')))
-    print("next_ty_futures_maturity on 2019-03-19:\n{}"
-          .format(next_treasury_futures_maturity('2019-03-19')))
-    print("next_ty_futures_maturity on 2019-03-20:\n{}"
-          .format(next_treasury_futures_maturity('2019-03-20')))
+    print("next_treasury_futures_maturity('2019-02-09', 2):\n{}"
+          .format(next_treasury_futures_maturity('2019-02-09', 2)))
+    print("next_treasury_futures_maturity('2019-02-09', 3):\n{}"
+          .format(next_treasury_futures_maturity('2019-02-09', 3)))
+    print("prev_treasury_futures_maturity('2019-09-19', 2):\n{}"
+          .format(prev_treasury_futures_maturity('2019-09-19', 2)))
+    print("next_treasury_futures_maturity('2019-02-09', tenor=5):\n{}"
+          .format(next_treasury_futures_maturity('2019-02-09', tenor=5)))
+    print("next_treasury_futures_maturity('2019-02-09', 2, tenor=5):\n{}"
+          .format(next_treasury_futures_maturity('2019-02-09', 2, tenor=5)))
 
 """ Example Output:
-expiry_by_terms on 2019-04-09, 3 terms:
+next_expiry('2019-04-09'):
+2019-04-18 00:00:00
+next_expiry('2019-04-09', n_terms=2):
+2019-05-17 00:00:00
+next_expiry('2019-04-09', n_terms=3):
 2019-06-21 00:00:00
-expiry_by_terms on 2019-12-09, 1 terms:
-2019-12-27 00:00:00
-expiry_by_terms on 2019-12-27, 1 terms:
-2020-01-24 00:00:00
-expiry_by_terms on 2016-03-09, 1 terms:
+next_expiry('2019-04-18', n_terms=1):
+2019-04-18 00:00:00
+next_expiry('2019-04-18', n_terms=2):
+2019-05-17 00:00:00
+next_expiry('2019-04-19', n_terms=1, curr_month_as_first_term=True):
+2019-04-18 00:00:00
+prev_expiry('2019-06-22', n_terms=3):
+2019-04-18 00:00:00
+prev_expiry('2019-05-17', n_terms=2, curr_month_as_first_term=True):
+2019-04-18 00:00:00
+next_expiry('2016-03-09', last_friday, 1):
 2016-03-24 00:00:00
-expiry_by_terms on 2016-02-09, 2 terms:
+next_expiry('2016-03-09', expiry_func=last_friday, n_terms=12):
+2017-02-24 00:00:00
+prev_expiry('2017-02-24', expiry_func=last_friday, n_terms=12,
+            curr_month_as_first_term=True):
 2016-03-24 00:00:00
-next_ty_futures_maturity on 2019-02-09:
+next_treasury_futures_maturity('2019-02-09'):
 2019-03-20 00:00:00
-next_ty_futures_maturity on 2019-03-19:
-2019-03-20 00:00:00
-next_ty_futures_maturity on 2019-03-21:
+next_treasury_futures_maturity('2019-02-09', 2):
 2019-06-19 00:00:00
+next_treasury_futures_maturity('2019-02-09', 3):
+2019-09-19 00:00:00
+prev_treasury_futures_maturity('2019-09-19', 2):
+2019-03-20 00:00:00
+next_treasury_futures_maturity('2019-02-09', tenor=5):
+2019-03-29 00:00:00
+next_treasury_futures_maturity('2019-02-09', 2, tenor=5):
+2019-06-28 00:00:00
 """
