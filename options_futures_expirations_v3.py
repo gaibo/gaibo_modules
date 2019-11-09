@@ -1,5 +1,5 @@
 import pandas as pd
-from cboe_exchange_holidays_v3 import CboeTradingCalendar
+from cboe_exchange_holidays_v3 import CboeTradingCalendar, datelike_to_timestamp
 
 CBOE_TRADING_CALENDAR = CboeTradingCalendar()
 BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=CBOE_TRADING_CALENDAR)
@@ -9,17 +9,6 @@ DAY_NAME_TO_WEEKDAY_NUMBER_DICT = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'T
 
 ###############################################################################
 # Utilities
-
-def datelike_to_timestamp(datelike):
-    """ Convert date-like representations to pd.Timestamp, for consistency
-    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
-    :return: pd.Timestamp version of date
-    """
-    if not isinstance(datelike, pd.Timestamp):
-        return pd.to_datetime(datelike)
-    else:
-        return datelike
-
 
 def get_prev_business_day(datelike):
     """ Return previous business day using CustomBusinessDay with Cboe trading calendar
@@ -363,7 +352,7 @@ if __name__ == '__main__':
     print("next_treasury_futures_maturity('2019-02-09', 2, tenor=5):\n{}"
           .format(next_treasury_futures_maturity('2019-02-09', 2, tenor=5)))
 
-""" Example Output:
+""" Expected Output:
 next_expiry('2019-04-09'):
 2019-04-18 00:00:00
 next_expiry('2019-04-09', n_terms=2):
