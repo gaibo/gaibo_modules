@@ -44,3 +44,17 @@ class Timer(object):
                 print("Done. {:,.1f} seconds"
                       .format(self.end_time - self.start_time))
             self.reset()    # No real need to reset self.end_time in error case
+
+
+def add_timer(func):
+    """ Decorator that adds timing to any function
+        Usage: add "@add_timer" (syntactic sugar) right above a function definition
+    """
+    def wrapper(*args, **kwargs):
+        """ Add Timer statements to the execution of given function """
+        timer = Timer()
+        timer.start(f"Timing {func.__name__}() with args {args} and kwargs {kwargs}...")
+        func_ret = func(*args, **kwargs)
+        timer.stop()
+        return func_ret
+    return wrapper
