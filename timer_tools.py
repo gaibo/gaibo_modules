@@ -1,4 +1,5 @@
 import time
+import functools
 
 
 class Timer(object):
@@ -50,6 +51,7 @@ def add_timer(func):
     """ Decorator that adds timing to any function
         Usage: add "@add_timer" (syntactic sugar) right above a function definition
     """
+    @functools.wraps(func)  # Carry over original function metadata
     def wrapper(*args, **kwargs):
         """ Add Timer statements to the execution of given function """
         timer = Timer()
