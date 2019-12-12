@@ -1,8 +1,9 @@
 import pandas as pd
+import numpy as np
 
 RATES_CSV_FILEDIR = 'P:/PrdDevSharedDB/Treasury Rates/'
 RATES_CSV_FILENAME = 'treasury_rates.csv'
-MATURITY_NAME_TO_DAYS_DICT = {'1 Mo': 30, '2 Mo': 60, '3 Mo': 90, '6 Mo': 180,
+MATURITY_NAME_TO_DAYS_DICT = {'1 Mo': 30, '2 Mo': 61, '3 Mo': 91, '6 Mo': 182,
                               '1 Yr': 365, '2 Yr': 730, '3 Yr': 1095, '5 Yr': 1825,
                               '7 Yr': 2555, '10 Yr': 3650, '20 Yr': 7300, '30 Yr': 10950}
 
@@ -24,6 +25,33 @@ def load_treasury_rates(file_dir=None, file_name=None):
     except FileNotFoundError:
         print("ERROR: '{}' Treasury rates file not found.".format(file_dir+file_name))
         return None
+
+
+def convert_to_nominal_rate(compounded_rate):
+    """ Convert continuously compounded rate (return of continuous compounding) to nominal annual rate
+        Formula: compounded_rate = exp(nominal_rate) - 1
+        NOTE: output of this function can be used in exp(rate) calculations
+    :param compounded_rate: continuously compounded rate, in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+    :return: nominal rate, also in percent
+    """
+    nominal_rate = np.log(1 + (compounded_rate/100)) * 100
+    legit_nominal_rate = nominal_rate if nominal_rate >= 0 else 0
+    return legit_nominal_rate
+
+
+def convert_to_compounded_rate(nominal_rate):
+    """ Convert nominal annual rate to continuously compounded rate (return of continuous compounding)
+        Formula: compounded_rate = exp(nominal_rate) - 1
+    :param nominal_rate: nominal rate, in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+    :return: continuously compounded rate, also in percent
+    """
+    compounded_rate = (np.exp(nominal_rate/100) - 1) * 100
+    legit_compounded_rate = compounded_rate if compounded_rate >= 0 else 0
+    return legit_compounded_rate
+
+
+def cubic_spline_interpolation():
+    pass
 
 
 def get_treasury_rate(loaded_rates, date, time_to_maturity, time_in_years=False):
