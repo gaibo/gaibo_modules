@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from metaballon.CleanSplines import ExLinearNaturalCubicSpline
 
 RATES_CSV_FILEDIR = 'P:/PrdDevSharedDB/Treasury Rates/'
 RATES_CSV_FILENAME = 'treasury_rates.csv'
@@ -50,18 +51,63 @@ def convert_to_compounded_rate(nominal_rate):
     return legit_compounded_rate
 
 
-def cubic_spline_interpolation():
-    pass
+def natural_cubic_spline_interpolation(rates_time_to_maturity, rates_rates, time_to_maturity):
+    """ Interpolate rate using natural cubic spline
+    :param rates_time_to_maturity: days to maturity of the rates term structure
+    :param rates_rates: rates of the rates term structure (corresponds to rates_time_to_maturity)
+    :param time_to_maturity: desired days to maturity
+    :return: interpolated rate for time_to_maturity
+    """
+    nat_cub_spl = ExLinearNaturalCubicSpline(rates_time_to_maturity, rates_rates)
+    return nat_cub_spl.eval(time_to_maturity)
 
 
-def get_treasury_rate(loaded_rates, date, time_to_maturity, time_in_years=False):
-    """ Get a forward-filled and interpolated Treasury rate from DataFrame
+def linear_interpolation(rates_time_to_maturity, rates_rates, time_to_maturity):
+    """ Interpolate rate linearly
+    :param rates_time_to_maturity: days to maturity of the rates term structure
+    :param rates_rates: rates of the rates term structure (corresponds to rates_time_to_maturity)
+    :param time_to_maturity: desired days to maturity
+    :return: interpolated rate for time_to_maturity
+    """
+    # Get the maturities just shorter and just longer than the desired time_to_maturity
+    shorter_maturity_index = 0
+    longer_maturity_index = -1
+    for index, days in enumerate(rates_time_to_maturity):
+        if time_to_maturity >= days:
+            # Move shorter maturity towards longer each loop
+            shorter_maturity_index = index
+        if time_to_maturity <= days:
+            # If longer maturity is reached, both shorter and longer have been found
+            longer_maturity_index = index
+            break
+    if shorter_maturity_index == longer_maturity_index:
+        return rates_rates[shorter_maturity_index]
+    else:
+        # Interpolate between shorter and longer maturity
+        shorter_rate = rates_rates[shorter_maturity_index]
+        shorter_days = rates_time_to_maturity[shorter_maturity_index]
+        longer_rate = rates_rates[longer_maturity_index]
+        longer_days = rates_time_to_maturity[longer_maturity_index]
+        shorter_proportion = (longer_days - time_to_maturity) / (longer_days - shorter_days)
+        longer_proportion = 1 - shorter_proportion
+        return shorter_proportion * shorter_rate + longer_proportion * longer_rate
+
+
+INTERPOLATION_FUNCTION_DISPATCH = {'natural cubic spline': natural_cubic_spline_interpolation,
+                                   'linear': linear_interpolation}
+
+
+def get_rate(loaded_rates, date, time_to_maturity, time_in_years=False,
+             interp_method='natural cubic spline', return_rate_type='nominal'):
+    """ Get a forward-filled and interpolated risk-free rate from DataFrame
         NOTE: no vectorized input and output implemented
     :param loaded_rates: DataFrame loaded through load_treasury_rates
     :param date: date on which to obtain rate (can be string or object)
     :param time_to_maturity: number of days to maturity at which rate is interpolated
     :param time_in_years: set True if time_to_maturity is in years instead of days
-    :return: numerical Treasury rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+    :param interp_method: method of rates interpolation (e.g. 'natural cubic spline', 'linear')
+    :param return_rate_type: set 'compounded' for Treasury rate, 'nominal' if rate will be used for exp(r)
+    :return: numerical risk-free rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
     """
     if not isinstance(date, pd.Timestamp):
         date = pd.Timestamp(date)   # Ensure date is in pandas Timestamp format
@@ -70,28 +116,13 @@ def get_treasury_rate(loaded_rates, date, time_to_maturity, time_in_years=False)
     # Get date's available rates by
     # 1) forward-filling if date not available and 2) dropping maturities that are not available
     day_rates = loaded_rates.loc[:date].fillna(method='ffill').iloc[-1].dropna()
-    day_available_maturity_days_dict = {MATURITY_NAME_TO_DAYS_DICT[name]: name
-                                        for name in day_rates.index}
-    day_available_maturity_names = list(day_available_maturity_days_dict.values())
-    # Get the maturity just shorter and just longer than the desired time_to_maturity
-    shorter_maturity_name = day_available_maturity_names[0]
-    longer_maturity_name = day_available_maturity_names[-1]
-    for days, name in day_available_maturity_days_dict.items():
-        if time_to_maturity >= days:
-            # Move shorter maturity towards longer each loop
-            shorter_maturity_name = name
-        if time_to_maturity <= days:
-            # If longer maturity is found, convergence has been found
-            longer_maturity_name = name
-            break
-    if shorter_maturity_name == longer_maturity_name:
-        return day_rates[shorter_maturity_name]
+    day_rates_days = [MATURITY_NAME_TO_DAYS_DICT[name] for name in day_rates.index]
+    day_rates_rates = day_rates.values
+    # Interpolate for Treasury rate
+    interp_func = INTERPOLATION_FUNCTION_DISPATCH[interp_method]
+    treasury_rate = interp_func(day_rates_days, day_rates_rates, time_to_maturity)
+    if return_rate_type == 'nominal':
+        # Convert Treasury rate (compounded return rate) to nominal annual rate
+        return convert_to_nominal_rate(treasury_rate)
     else:
-        # Interpolate between shorter and longer maturity
-        shorter_rate = day_rates[shorter_maturity_name]
-        shorter_days = MATURITY_NAME_TO_DAYS_DICT[shorter_maturity_name]
-        longer_rate = day_rates[longer_maturity_name]
-        longer_days = MATURITY_NAME_TO_DAYS_DICT[longer_maturity_name]
-        shorter_proportion = (longer_days - time_to_maturity) / (longer_days - shorter_days)
-        longer_proportion = 1 - shorter_proportion
-        return shorter_proportion*shorter_rate + longer_proportion*longer_rate
+        return treasury_rate
