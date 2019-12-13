@@ -7,10 +7,11 @@ RATES_CSV_FILENAME = 'treasury_rates.csv'
 MATURITY_NAME_TO_DAYS_DICT = {'1 Mo': 30, '2 Mo': 61, '3 Mo': 91, '6 Mo': 182,
                               '1 Yr': 365, '2 Yr': 730, '3 Yr': 1095, '5 Yr': 1825,
                               '7 Yr': 2555, '10 Yr': 3650, '20 Yr': 7300, '30 Yr': 10950}
+RATE_TO_PERCENT = 100
 
 
 def load_treasury_rates(file_dir=None, file_name=None):
-    """ Read Treasury rates from disk and load them into a DataFrame
+    """ Read CMT Treasury yield rates from disk and load them into a DataFrame
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
     :return: pd.DataFrame with Treasury rates
@@ -28,27 +29,69 @@ def load_treasury_rates(file_dir=None, file_name=None):
         return None
 
 
-def convert_to_nominal_rate(compounded_rate):
-    """ Convert continuously compounded rate (return of continuous compounding) to nominal annual rate
-        Formula: compounded_rate = exp(nominal_rate) - 1
-        NOTE: output of this function can be used in exp(rate) calculations
-    :param compounded_rate: continuously compounded rate, in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+def continuous_apy_to_nominal_bey(continuous_rate):
+    """ Convert continuously compounded APY rate to nominal annual rate (BEY)
+        Formula: continuous_rate = exp(nominal_rate) - 1
+    :param continuous_rate: continuously compounded rate, in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
     :return: nominal rate, also in percent
     """
-    nominal_rate = np.log(1 + (compounded_rate/100)) * 100
-    legit_nominal_rate = nominal_rate if nominal_rate >= 0 else 0
-    return legit_nominal_rate
+    nominal_rate = np.log(1 + (continuous_rate/RATE_TO_PERCENT)) * RATE_TO_PERCENT
+    nonneg_nominal_rate = nominal_rate if nominal_rate >= 0 else 0
+    return nonneg_nominal_rate
 
 
-def convert_to_compounded_rate(nominal_rate):
-    """ Convert nominal annual rate to continuously compounded rate (return of continuous compounding)
-        Formula: compounded_rate = exp(nominal_rate) - 1
+def nominal_bey_to_continuous_apy(nominal_rate):
+    """ Convert nominal annual rate (BEY) to continuously compounded APY rate
+        Formula: continuous_rate = exp(nominal_rate) - 1
     :param nominal_rate: nominal rate, in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
     :return: continuously compounded rate, also in percent
     """
-    compounded_rate = (np.exp(nominal_rate/100) - 1) * 100
-    legit_compounded_rate = compounded_rate if compounded_rate >= 0 else 0
-    return legit_compounded_rate
+    continuous_rate = (np.exp(nominal_rate/RATE_TO_PERCENT) - 1) * RATE_TO_PERCENT
+    nonneg_continuous_rate = continuous_rate if continuous_rate >= 0 else 0
+    return nonneg_continuous_rate
+
+
+def semiannual_apy_to_nominal_bey(semiannual_rate):
+    """ Convert semiannually compounded APY rate to nominal annual rate (BEY)
+        Formula: semiannual_rate = (1 + nominal_rate/2)^2 - 1
+    :param semiannual_rate: semiannually compounded rate, in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+    :return: nominal rate, also in percent
+    """
+    nominal_rate = (np.sqrt(semiannual_rate/RATE_TO_PERCENT + 1) - 1) * 2 * RATE_TO_PERCENT
+    nonneg_nominal_rate = nominal_rate if nominal_rate >= 0 else 0
+    return nonneg_nominal_rate
+
+
+def nominal_bey_to_semiannual_apy(nominal_rate):
+    """ Convert nominal annual rate (BEY) to semiannually compounded APY rate
+        Formula: semiannual_rate = (1 + nominal_rate/2)^2 - 1
+    :param nominal_rate: nominal rate, in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+    :return: semiannually compounded rate, also in percent
+    """
+    semiannual_rate = ((1 + nominal_rate/RATE_TO_PERCENT/2)**2 - 1) * RATE_TO_PERCENT
+    nonneg_semiannual_rate = semiannual_rate if semiannual_rate >= 0 else 0
+    return nonneg_semiannual_rate
+
+
+# NOTE: - Treasury rates are bond equivalent yields (BEYs) and nominal annual rates
+#       - continuously and semiannually compounded rates must be used as r^t, not exp(r*t)
+#       - Cboe officially uses something which I describe as log(annual); you use exp(r*t) to achieve
+#         r^t where r is 1+nominal (i.e. an annually compounded rate)
+#       - I think that log(semiannual) is the most useful and accurate rate; you use exp(r*t) to achieve
+#         r^t where r is the semiannually compounded rate, i.e. the APY of the BEY
+RATE_TYPE_FUNCTION_DISPATCH = {'bey': lambda rate: rate,
+                               'BEY': lambda rate: rate,
+                               'nominal': lambda rate: rate,
+                               'treasury': lambda rate: rate,
+                               'continuous': nominal_bey_to_continuous_apy,
+                               'continuously compounded': nominal_bey_to_continuous_apy,
+                               'semiannual': nominal_bey_to_semiannual_apy,
+                               'semiannually compounded': nominal_bey_to_semiannual_apy,
+                               'vix': continuous_apy_to_nominal_bey,
+                               'VIX': continuous_apy_to_nominal_bey,
+                               'log(annual)': continuous_apy_to_nominal_bey,
+                               'log(semiannual)': lambda rate:
+                                   continuous_apy_to_nominal_bey(nominal_bey_to_semiannual_apy(rate))}
 
 
 def natural_cubic_spline_interpolation(rates_time_to_maturity, rates_rates, time_to_maturity):
@@ -99,7 +142,7 @@ INTERPOLATION_FUNCTION_DISPATCH = {'natural cubic spline': natural_cubic_spline_
 
 
 def get_rate(loaded_rates, date, time_to_maturity, time_in_years=False,
-             interp_method='natural cubic spline', return_rate_type='nominal'):
+             interp_method='natural cubic spline', return_rate_type='log(semiannual)'):
     """ Get a forward-filled and interpolated risk-free rate from DataFrame
         NOTE: no vectorized input and output implemented
     :param loaded_rates: DataFrame loaded through load_treasury_rates
@@ -107,7 +150,7 @@ def get_rate(loaded_rates, date, time_to_maturity, time_in_years=False,
     :param time_to_maturity: number of days to maturity at which rate is interpolated
     :param time_in_years: set True if time_to_maturity is in years instead of days
     :param interp_method: method of rates interpolation (e.g. 'natural cubic spline', 'linear')
-    :param return_rate_type: set 'compounded' for Treasury rate, 'nominal' if rate will be used for exp(r)
+    :param return_rate_type: type of rate to return; see RATE_TYPE_FUNCTION_DISPATCH for documentation
     :return: numerical risk-free rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
     """
     if not isinstance(date, pd.Timestamp):
@@ -119,11 +162,9 @@ def get_rate(loaded_rates, date, time_to_maturity, time_in_years=False,
     day_rates = loaded_rates.loc[:date].fillna(method='ffill').iloc[-1].dropna()
     day_rates_days = [MATURITY_NAME_TO_DAYS_DICT[name] for name in day_rates.index]
     day_rates_rates = day_rates.values
-    # Interpolate for Treasury rate
+    # Interpolate CMT Treasury rates
     interp_func = INTERPOLATION_FUNCTION_DISPATCH[interp_method]
     treasury_rate = interp_func(day_rates_days, day_rates_rates, time_to_maturity)
-    if return_rate_type == 'nominal':
-        # Convert Treasury rate (compounded return rate) to nominal annual rate
-        return convert_to_nominal_rate(treasury_rate)
-    else:
-        return treasury_rate
+    # Convert interpolated Treasury rate into desired format
+    convert_func = RATE_TYPE_FUNCTION_DISPATCH[return_rate_type]
+    return convert_func(treasury_rate)
