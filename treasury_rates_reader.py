@@ -71,7 +71,7 @@ def linear_interpolation(rates_time_to_maturity, rates_rates, time_to_maturity):
     """
     # Get the maturities just shorter and just longer than the desired time_to_maturity
     shorter_maturity_index = 0
-    longer_maturity_index = -1
+    longer_maturity_index = len(rates_time_to_maturity)
     for index, days in enumerate(rates_time_to_maturity):
         if time_to_maturity >= days:
             # Move shorter maturity towards longer each loop
@@ -81,6 +81,7 @@ def linear_interpolation(rates_time_to_maturity, rates_rates, time_to_maturity):
             longer_maturity_index = index
             break
     if shorter_maturity_index == longer_maturity_index:
+        # Skip interpolation
         return rates_rates[shorter_maturity_index]
     else:
         # Interpolate between shorter and longer maturity
