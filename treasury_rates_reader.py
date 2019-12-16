@@ -142,7 +142,7 @@ INTERPOLATION_FUNCTION_DISPATCH = {'natural cubic spline': natural_cubic_spline_
 
 
 def get_rate(loaded_rates, date, time_to_maturity, time_in_years=False,
-             interp_method='natural cubic spline', return_rate_type='log(semiannual)'):
+             interp_method='natural cubic spline', return_rate_type='BEY'):
     """ Get a forward-filled and interpolated risk-free rate from DataFrame
         NOTE: no vectorized input and output implemented
     :param loaded_rates: DataFrame loaded through load_treasury_rates
