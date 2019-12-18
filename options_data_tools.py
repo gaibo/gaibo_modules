@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from treasury_rates_reader import load_treasury_rates, get_treasury_rate
+from treasury_rates_reader import load_treasury_rates, get_rate
 
 
 def remove_duplicate_series(data, trade_date_col='trade_date', exp_date_col='exp_date',
@@ -60,7 +60,7 @@ def add_rate(data, trade_date_col='trade_date', t_to_exp_col='t_to_exp',
     trade_dates = unique_index.get_level_values(trade_date_col)
     t_to_exps = unique_index.get_level_values(t_to_exp_col)
     # Get corresponding unique set of Treasury rates
-    unique_rates_list = [get_treasury_rate(tr_rates, trade_date, t_to_exp, time_in_years=True)/100
+    unique_rates_list = [get_rate(tr_rates, trade_date, t_to_exp, time_in_years=True)/100
                          for trade_date, t_to_exp, in zip(trade_dates, t_to_exps)]
     unique_rates_df = pd.DataFrame({new_rate_col: unique_rates_list}, index=unique_index)
     # Join unique rates back to full data
