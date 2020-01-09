@@ -78,7 +78,7 @@ def get_price_from_yield(coupon, ytm_bey, n_remaining_coupons, remaining_first_p
                          remaining_coupon_periods=None, verbose=True):
     """ Calculate dirty price of semiannual coupon bond
     :param coupon: coupon percentage of bond, e.g. 2.875
-    :param ytm_bey: bond equivalent yield-to-maturity percentage of bond, e.g. 2.858
+    :param ytm_bey: bond equivalent yield to maturity percentage of bond, e.g. 2.858
     :param n_remaining_coupons: number of remaining coupons up to maturity of bond
     :param remaining_first_period: proportion of the current coupon period still remaining
     :param remaining_coupon_periods: numpy/pandas array; if not None, replaces function of previous two fields
@@ -105,7 +105,7 @@ def get_yield_to_maturity(coupon, maturity_datelike, price_clean, settle_datelik
     :param maturity_datelike: maturity date of bond
     :param price_clean: clean price of bond (quoted price)
     :param settle_datelike: settlement date of bond (business day after trade date)
-    :return: BEY yield-to-maturity in percent
+    :return: BEY yield to maturity in percent
     """
     maturity_date = datelike_to_timestamp(maturity_datelike)
     settle_date = datelike_to_timestamp(settle_datelike)
