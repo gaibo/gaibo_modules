@@ -101,8 +101,8 @@ def get_remaining_coupon_periods(maturity_datelike=None, settle_datelike=None,
 
 
 def get_price_from_yield(coupon, ytm_bey, maturity_datelike, settle_datelike,
-                         n_remaining_coupons=None, remaining_first_period=1.0,
-                         remaining_coupon_periods=None, get_clean=False, verbose=False):
+                         n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
+                         get_clean=False, verbose=False):
     """ Calculate dirty price of semiannual coupon bond
         NOTE: In order to derive the maturity, please supply one of the following three configurations:
               1) maturity_datelike and settle_datelike
@@ -145,8 +145,8 @@ def get_price_from_yield(coupon, ytm_bey, maturity_datelike, settle_datelike,
 
 
 def get_yield_to_maturity(coupon, price, maturity_datelike, settle_datelike,
-                          n_remaining_coupons=None, remaining_first_period=1.0,
-                          remaining_coupon_periods=None, is_clean_price=False):
+                          n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
+                          is_clean_price=False):
     """ Back out bond equivalent yield to maturity from bond specs, price, and time to maturity
         NOTE: In order to derive the maturity, please supply one of the following three configurations:
               1) maturity_datelike and settle_datelike
@@ -175,9 +175,24 @@ def get_yield_to_maturity(coupon, price, maturity_datelike, settle_datelike,
     return solved_root.x[0]
 
 
-def get_macaulay_duration(coupon, ytm_bey, maturity_datelike, settle_datelike,
-                          n_remaining_coupons=None, remaining_first_period=1.0,
-                          remaining_coupon_periods=None):
+def get_duration(coupon, ytm_bey, maturity_datelike, settle_datelike,
+                 n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
+                 get_macaulay=False):
+    """ Calculate duration (modified or Macaulay) from coupon, yield, and time to maturity
+        NOTE: In order to derive the maturity, please supply one of the following three configurations:
+              1) maturity_datelike and settle_datelike
+              2) n_remaining_coupons and (optional) remaining_first_period
+              3) remaining_coupon_periods
+    :param coupon: coupon percentage of bond, e.g. 2.875
+    :param ytm_bey: bond equivalent yield to maturity percentage of bond, e.g. 2.858
+    :param maturity_datelike: maturity date of bond
+    :param settle_datelike: settlement date of bond (business day after trade date)
+    :param n_remaining_coupons: number of remaining coupons up to maturity of bond; set not None for configuration 2
+    :param remaining_first_period: fraction of the first upcoming coupon period still remaining
+    :param remaining_coupon_periods: numpy/pandas array; set not None for configuration 3
+    :param get_macaulay: set True for Macaulay duration; default modified duration
+    :return: modified or Macaulay (known as just "duration") duration in years
+    """
     if remaining_coupon_periods is None:
         # Derive (potentially non-whole) discount rate periods since they are not given
         remaining_coupon_periods = get_remaining_coupon_periods(maturity_datelike, settle_datelike,
@@ -192,47 +207,97 @@ def get_macaulay_duration(coupon, ytm_bey, maturity_datelike, settle_datelike,
     cf_present_value_weighted_n_periods = (cash_flows * discount_factors * remaining_coupon_periods).sum()
     cf_present_value = (cash_flows * discount_factors).sum()
     duration_n_periods = cf_present_value_weighted_n_periods / cf_present_value
-    return duration_n_periods / 2   # 2 coupon periods in a year
+    macaulay_duration = duration_n_periods / 2  # 2 coupon periods in a year
+    if get_macaulay:
+        return macaulay_duration
+    else:
+        # Modified duration is Macaulay duration / (1 + yield/compounding frequency)
+        modified_duration = macaulay_duration / (1 + ytm_semiannual)
+        return modified_duration
 
 
 ###############################################################################
 
 if __name__ == '__main__':
-    print("\nTest 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)\n")
-    backed_out_price = get_price_from_yield(2.875, 2.594, None, None, 4, verbose=True)
-    print(f"get_price_from_yield(2.875, 2.594, None, None, 4, verbose=True): {backed_out_price}")
-    print(f"get_yield_to_maturity(2.875, 100.5442393400022, '2010-06-30', '2008-06-30'): "
-          f"{get_yield_to_maturity(2.875, 100.5442393400022, '2010-06-30', '2008-06-30')}")
+    print("\nExample 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)\n")
+    true_ytm = 2.594
+    print(f"True Yield to Maturity: {true_ytm}")
+    calculated_price = get_price_from_yield(2.875, true_ytm, None, None, 4, verbose=True)
+    print(f"get_price_from_yield(2.875, true_ytm, None, None, 4, verbose=True): {calculated_price}")
+    calculated_ytm = get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30')
+    print(f"get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'): {calculated_ytm}")
+    if np.isclose(true_ytm, calculated_ytm):
+        print("PASS")
+    else:
+        print("!!!FAILED!!!")
     
-    print("\nTest 2: 20 Non-Whole Coupon Periods\n")
-    print("Clean Price: 99.4375")
-    calculated_yield = get_yield_to_maturity(3.875, 99.4375, '2018-05-15', '2008-07-11', is_clean_price=True)
-    print(f"get_yield_to_maturity(3.875, 99.4375, '2018-05-15', '2008-07-11', is_clean_price=True): {calculated_yield}")
+    print("\nExample 2: 20 Non-Whole Coupon Periods\n")
+    true_clean_price = 99.4375
+    print(f"True Clean Price: {true_clean_price}")
+    calculated_yield = get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True)
+    print(f"get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True): "
+          f"{calculated_yield}")
+    calculated_clean_price = get_price_from_yield(3.875, calculated_yield, None, None, 20, 1-57/184, get_clean=True)
+    print(f"get_price_from_yield(3.875, calculated_yield, 20, 1-57/184, get_clean=True): {calculated_clean_price}")
+    if np.isclose(true_clean_price, calculated_clean_price):
+        print("PASS")
+    else:
+        print("!!!FAILED!!!")
     print("On settlement date, we are 57 days into the 184 days of coupon period")
-    print("Real Dirty Price: 99.4375 + 57/184 * 3.875/2 = 100.03770380434783")
-    backed_out_dirty_price = get_price_from_yield(3.875, 3.9439989648691136, None, None, 20, 1-57/184)
-    print(f"get_price_from_yield(3.875, 3.943998964869112, 20, 1-57/184): {backed_out_dirty_price}")
-    backed_out_clean_price = get_price_from_yield(3.875, 3.9439989648691136, None, None, 20, 1-57/184, get_clean=True)
-    print(f"get_price_from_yield(3.875, 3.943998964869112, 20, 1-57/184, get_clean=True): {backed_out_clean_price}")
+    true_dirty_price = true_clean_price + 57/184 * 3.875/2
+    print(f"True Dirty Price: true_clean_price + 57/184 * 3.875/2 = {true_dirty_price}")
+    calculated_dirty_price = get_price_from_yield(3.875, calculated_yield, None, None, 20, 1-57/184)
+    print(f"get_price_from_yield(3.875, calculated_yield, 20, 1-57/184): {calculated_dirty_price}")
+    if np.isclose(true_dirty_price, calculated_dirty_price):
+        print("PASS")
+    else:
+        print("!!!FAILED!!!")
+
+    print("\nExample 3: Duration\n")
+    true_macaulay = 1.2215
+    calculated_macaulay = get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True)
+    print(f"get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True): {calculated_macaulay}")
+    if np.isclose(true_macaulay, calculated_macaulay):
+        print("PASS")
+    else:
+        print("!!!FAILED!!!")
+    true_modified = 0.4055
+    calculated_modified = get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22')
+    print(f"get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'): {calculated_modified}")
+    if np.isclose(true_modified, calculated_modified):
+        print("PASS")
+    else:
+        print("!!!FAILED!!!")
 
 """ Expected Output:
-Test 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)
+Example 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)
 
+True Yield to Maturity: 2.594
 Discounted Payment 1: 1.4190943463281245
 Discounted Payment 2: 1.4009243574124846
 Discounted Payment 3: 1.3829870158173336
 Discounted Payment 4: 96.34123362044427
 Calculated Dirty Price: 100.5442393400022
 Calculated Clean Price: 100.5442393400022
-get_price_from_yield(2.875, 2.594, None, None, 4, verbose=True): 100.5442393400022
-get_yield_to_maturity(2.875, 100.5442393400022, '2010-06-30', '2008-06-30'): 2.5940000000000043
+get_price_from_yield(2.875, true_ytm, None, None, 4, verbose=True): 100.5442393400022
+get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'): 2.5940000000000043
+PASS
 
-Test 2: 20 Non-Whole Coupon Periods
+Example 2: 20 Non-Whole Coupon Periods
 
-Clean Price: 99.4375
-get_yield_to_maturity(3.875, 99.4375, '2018-05-15', '2008-07-11', is_clean_price=True): 3.9439989648691136
+True Clean Price: 99.4375
+get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True): 3.9439989648691136
+get_price_from_yield(3.875, calculated_yield, 20, 1-57/184, get_clean=True): 99.43749999999979
+PASS
 On settlement date, we are 57 days into the 184 days of coupon period
-Real Dirty Price: 99.4375 + 57/184 * 3.875/2 = 100.03770380434783
-get_price_from_yield(3.875, 3.943998964869112, 20, 1-57/184): 100.03770380434761
-get_price_from_yield(3.875, 3.943998964869112, 20, 1-57/184, get_clean=True): 99.43749999999979
+True Dirty Price: true_clean_price + 57/184 * 3.875/2 = 100.03770380434783
+get_price_from_yield(3.875, calculated_yield, 20, 1-57/184): 100.03770380434761
+PASS
+
+Example 3: Duration
+
+get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True): 1.2215000001576344
+PASS
+get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'): 0.40550000045334145
+PASS
 """
