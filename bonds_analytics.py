@@ -100,7 +100,7 @@ def get_remaining_coupon_periods(maturity_datelike=None, settle_datelike=None,
     return remaining_coupon_periods
 
 
-def get_price_from_yield(coupon, ytm_bey, maturity_datelike, settle_datelike,
+def get_price_from_yield(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
                          n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
                          get_clean=False, verbose=False):
     """ Calculate dirty price of semiannual coupon bond
@@ -144,7 +144,7 @@ def get_price_from_yield(coupon, ytm_bey, maturity_datelike, settle_datelike,
         return calc_dirty_price
 
 
-def get_yield_to_maturity(coupon, price, maturity_datelike, settle_datelike,
+def get_yield_to_maturity(coupon, price, maturity_datelike=None, settle_datelike=None,
                           n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
                           is_clean_price=False):
     """ Back out bond equivalent yield to maturity from bond specs, price, and time to maturity
@@ -175,7 +175,7 @@ def get_yield_to_maturity(coupon, price, maturity_datelike, settle_datelike,
     return solved_root.x[0]
 
 
-def get_duration(coupon, ytm_bey, maturity_datelike, settle_datelike,
+def get_duration(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
                  n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
                  get_macaulay=False):
     """ Calculate duration (modified or Macaulay) from coupon, yield, and time to maturity
@@ -222,8 +222,8 @@ if __name__ == '__main__':
     print("\nExample 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)\n")
     true_ytm = 2.594
     print(f"True Yield to Maturity: {true_ytm}")
-    calculated_price = get_price_from_yield(2.875, true_ytm, None, None, 4, verbose=True)
-    print(f"get_price_from_yield(2.875, true_ytm, None, None, 4, verbose=True): {calculated_price}")
+    calculated_price = get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True)
+    print(f"get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True): {calculated_price}")
     calculated_ytm = get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30')
     print(f"get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'): {calculated_ytm}")
     if np.isclose(true_ytm, calculated_ytm):
@@ -237,8 +237,12 @@ if __name__ == '__main__':
     calculated_yield = get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True)
     print(f"get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True): "
           f"{calculated_yield}")
-    calculated_clean_price = get_price_from_yield(3.875, calculated_yield, None, None, 20, 1-57/184, get_clean=True)
-    print(f"get_price_from_yield(3.875, calculated_yield, 20, 1-57/184, get_clean=True): {calculated_clean_price}")
+    calculated_clean_price = get_price_from_yield(3.875, calculated_yield,
+                                                  n_remaining_coupons=20, remaining_first_period=1-57/184,
+                                                  get_clean=True)
+    print(f"get_price_from_yield(3.875, calculated_yield,\n"
+          f"                     n_remaining_coupons=20, remaining_first_period=1-57/184,\n"
+          f"                     get_clean=True): {calculated_clean_price}")
     if np.isclose(true_clean_price, calculated_clean_price):
         print("PASS")
     else:
@@ -246,8 +250,10 @@ if __name__ == '__main__':
     print("On settlement date, we are 57 days into the 184 days of coupon period")
     true_dirty_price = true_clean_price + 57/184 * 3.875/2
     print(f"True Dirty Price: true_clean_price + 57/184 * 3.875/2 = {true_dirty_price}")
-    calculated_dirty_price = get_price_from_yield(3.875, calculated_yield, None, None, 20, 1-57/184)
-    print(f"get_price_from_yield(3.875, calculated_yield, 20, 1-57/184): {calculated_dirty_price}")
+    calculated_dirty_price = get_price_from_yield(3.875, calculated_yield,
+                                                  n_remaining_coupons=20, remaining_first_period=1-57/184)
+    print(f"get_price_from_yield(3.875, calculated_yield,\n"
+          f"                     n_remaining_coupons=20, remaining_first_period=1-57/184): {calculated_dirty_price}")
     if np.isclose(true_dirty_price, calculated_dirty_price):
         print("PASS")
     else:
@@ -279,7 +285,7 @@ Discounted Payment 3: 1.3829870158173336
 Discounted Payment 4: 96.34123362044427
 Calculated Dirty Price: 100.5442393400022
 Calculated Clean Price: 100.5442393400022
-get_price_from_yield(2.875, true_ytm, None, None, 4, verbose=True): 100.5442393400022
+get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True): 100.5442393400022
 get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'): 2.5940000000000043
 PASS
 
@@ -287,11 +293,14 @@ Example 2: 20 Non-Whole Coupon Periods
 
 True Clean Price: 99.4375
 get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True): 3.9439989648691136
-get_price_from_yield(3.875, calculated_yield, 20, 1-57/184, get_clean=True): 99.43749999999979
+get_price_from_yield(3.875, calculated_yield,
+                     n_remaining_coupons=20, remaining_first_period=1-57/184,
+                     get_clean=True): 99.43749999999979
 PASS
 On settlement date, we are 57 days into the 184 days of coupon period
 True Dirty Price: true_clean_price + 57/184 * 3.875/2 = 100.03770380434783
-get_price_from_yield(3.875, calculated_yield, 20, 1-57/184): 100.03770380434761
+get_price_from_yield(3.875, calculated_yield,
+                     n_remaining_coupons=20, remaining_first_period=1-57/184): 100.03770380434761
 PASS
 
 Example 3: Duration
