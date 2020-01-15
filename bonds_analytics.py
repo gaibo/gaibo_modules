@@ -74,7 +74,7 @@ def get_coupon_status(maturity_datelike, settle_datelike):
     return prev_coupon_date, next_coupon_date, days_in_period.days, days_since_coupon.days
 
 
-def get_price_from_yield(coupon, ytm_bey, n_remaining_coupons, remaining_first_period=1,
+def get_price_from_yield(coupon, ytm_bey, n_remaining_coupons, remaining_first_period=1.0,
                          remaining_coupon_periods=None, verbose=True):
     """ Calculate dirty price of semiannual coupon bond
     :param coupon: coupon percentage of bond, e.g. 2.875
@@ -85,11 +85,12 @@ def get_price_from_yield(coupon, ytm_bey, n_remaining_coupons, remaining_first_p
     :param verbose: set True to print discounted cash flows
     :return: dirty price of bond with 100 as par
     """
-    ytm_semiannual = ytm_bey / 2
     if remaining_coupon_periods is None:
+        # Derive (potentially non-whole) discount rate periods since they are not given
         remaining_coupon_periods = remaining_first_period + np.arange(n_remaining_coupons)
-    coupons_pv = (coupon/2) / (1 + ytm_semiannual/100)**remaining_coupon_periods
-    face_pv = 100 / (1 + ytm_semiannual/100)**remaining_coupon_periods[-1]
+    ytm_semiannual = ytm_bey/2 / 100    # Convert to non-percentage
+    coupons_pv = (coupon/2) / (1 + ytm_semiannual)**remaining_coupon_periods
+    face_pv = 100 / (1 + ytm_semiannual)**remaining_coupon_periods[-1]
     calc_dirty_price = coupons_pv.sum() + face_pv
     if verbose:
         for i, coupon_pv in enumerate(coupons_pv, 1):
@@ -99,11 +100,11 @@ def get_price_from_yield(coupon, ytm_bey, n_remaining_coupons, remaining_first_p
     return calc_dirty_price
 
 
-def get_yield_to_maturity(coupon, maturity_datelike, price_clean, settle_datelike):
+def get_yield_to_maturity(coupon, price_clean, maturity_datelike, settle_datelike):
     """ Back out bond equivalent yield to maturity from bond price, bond specs, and settlement date
     :param coupon: coupon percentage of bond, e.g. 2.875
-    :param maturity_datelike: maturity date of bond
     :param price_clean: clean price of bond (quoted price)
+    :param maturity_datelike: maturity date of bond
     :param settle_datelike: settlement date of bond (business day after trade date)
     :return: BEY yield to maturity in percent
     """
@@ -125,3 +126,110 @@ def get_yield_to_maturity(coupon, maturity_datelike, price_clean, settle_datelik
                                             remaining_coupon_periods=remaining_coupon_periods, verbose=False)
                        - price_dirty, x0=np.array(2))
     return solved_root.x[0]
+
+
+# def get_macaulay_duration(coupon, ytm_bey, maturity_datelike, settle_datelike,
+#                           n_remaining_coupons=None, remaining_first_period=1):
+#     ytm_semiannual = ytm_bey/2 / 100
+#     if n_remaining_coupons is not None:
+#         # Get (potentially non-whole) discount rate periods without settlement and maturity
+#         remaining_coupon_periods = remaining_first_period + np.arange(n_remaining_coupons)
+#     else:
+#         maturity_date = datelike_to_timestamp(maturity_datelike)
+#         settle_date = datelike_to_timestamp(settle_datelike)
+#         prev_coupon_date, _, days_in_period, days_since_coupon = get_coupon_status(maturity_date, settle_date)
+#         remaining_period = 1 - days_since_coupon/days_in_period
+#         n_remaining_coupons = round(
+#             (maturity_date - prev_coupon_date) / ONE_YEAR * 2)  # Number of semiannual coupons remaining
+#         remaining_coupon_periods = remaining_period + np.arange(n_remaining_coupons)
+#     n = remaining_coupon_periods[-1]
+#     r = coupon/2 / 100
+#     i = ytm_semiannual
+#     n_periods_duration = (1+i)/i - ((1+i) + n*(r-i)) / (r*((1+i)**n - 1) + i)
+#     return n_periods_duration / 2
+
+
+def get_macaulay_duration(coupon, ytm_bey, maturity_datelike, settle_datelike,
+                          n_remaining_coupons=None, remaining_first_period=1, remaining_coupon_periods=None):
+    if remaining_coupon_periods is None:
+        # Derive (potentially non-whole) discount rate periods since they are not given
+        if n_remaining_coupons is not None:
+            # Use number of remaining coupons and remaining first period
+            remaining_coupon_periods = remaining_first_period + np.arange(n_remaining_coupons)
+        else:
+            # Use settlement and maturity
+            maturity_date = datelike_to_timestamp(maturity_datelike)
+            settle_date = datelike_to_timestamp(settle_datelike)
+            prev_coupon_date, _, days_in_period, days_since_coupon = get_coupon_status(maturity_date, settle_date)
+            remaining_period = 1 - days_since_coupon/days_in_period
+            n_remaining_coupons = round(
+                (maturity_date - prev_coupon_date) / ONE_YEAR * 2)  # Number of semiannual coupons remaining
+            remaining_coupon_periods = remaining_period + np.arange(n_remaining_coupons)
+    # Calculate cash flows and discount factors
+    cash_flows = np.full(n_remaining_coupons, coupon/2)
+    cash_flows[-1] += 100   # Face value delivered at maturity
+    ytm_semiannual = ytm_bey/2 / 100
+    discount_factors = 1 / (1+ytm_semiannual)**np.arange(1, n_remaining_coupons+1)
+    # Macaulay duration is (cash flows*discount factors*period numbers)/(cash flows*discount factors) / periods in year
+    cf_present_value_weighted_n_periods = (cash_flows*discount_factors*remaining_coupon_periods).sum()
+    cf_present_value = (cash_flows*discount_factors).sum()
+    duration_n_periods = cf_present_value_weighted_n_periods / cf_present_value
+    return duration_n_periods / 2   # 2 coupon periods in a year
+
+
+###############################################################################
+
+if __name__ == '__main__':
+    print("\nTest 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)\n")
+    print(f"get_price_from_yield(2.875, 2.594, 4): {get_price_from_yield(2.875, 2.594, 4)}")
+    print(f"get_yield_to_maturity(2.875, 100.5442393400022, '2010-06-30', '2008-06-30'): "
+          f"{get_yield_to_maturity(2.875, 100.5442393400022, '2010-06-30', '2008-06-30')}")
+    
+    print("\nTest 2: 20 Non-Whole Coupon Periods\n")
+    print("Clean Price: 99.4375")
+    calculated_yield = get_yield_to_maturity(3.875, 99.4375, '2018-05-15', '2008-07-11')
+    print(f"get_yield_to_maturity(3.875, 99.4375, '2018-05-15', '2008-07-11'): {calculated_yield}")
+    print("On settlement date, we are 57 days into the 184 days of coupon period")
+    print("Real Dirty Price: 99.4375 + 57/184 * 3.875/2 = 100.03770380434783")
+    backed_out_dirty_price = get_price_from_yield(3.875, 3.943998964869112, 20, 1-57/184)
+    print(f"get_price_from_yield(3.875, 3.943998964869112, 20, 1-57/184): {backed_out_dirty_price}")
+
+""" Expected Output:
+Test 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)
+Coupon 1: 1.4190943463281243
+Coupon 2: 1.4009243574124846
+Coupon 3: 1.3829870158173336
+Coupon 4: 1.3652793427419705
+Face: 94.9759542777023
+Calculated Dirty Price: 100.5442393400022
+get_price_from_yield(2.875, 2.594, 4): 100.5442393400022
+get_yield_to_maturity(2.875, 100.5442393400022, '2010-06-30', '2008-06-30'): 2.594000000000004
+Test 2: 20 Non-Whole Coupon Periods
+Clean Price: 99.4375
+get_yield_to_maturity(3.875, 99.4375, '2018-05-15', '2008-07-11'): 3.943998964869112
+On settlement date, we are 57 days into the 184 days of coupon period
+Real Dirty Price: 99.4375 + 57/184 * 3.875/2 = 100.03770380434783
+Coupon 1: 1.9115603877091476
+Coupon 2: 1.87459341526242
+Coupon 3: 1.8383413336769305
+Coupon 4: 1.8027903179378162
+Coupon 5: 1.7679268103871597
+Coupon 6: 1.7337375155536676
+Coupon 7: 1.7002093950823398
+Coupon 8: 1.6673296627621916
+Coupon 9: 1.63508577965013
+Coupon 10: 1.6034654492891312
+Coupon 11: 1.5724566130188906
+Coupon 12: 1.5420474453771578
+Coupon 13: 1.5122263495900037
+Coupon 14: 1.4829819531493018
+Coupon 15: 1.4543031034757306
+Coupon 16: 1.4261788636656527
+Coupon 17: 1.3985985083202401
+Coupon 18: 1.3715515194552592
+Coupon 19: 1.3450275824899551
+Coupon 20: 1.3190165823135067
+Face: 68.07827521618098
+Calculated Dirty Price: 100.03770380434761
+get_price_from_yield(3.875, 3.943998964869112, 20, 1-57/184): 100.03770380434761
+"""
