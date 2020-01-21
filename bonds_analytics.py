@@ -216,6 +216,49 @@ def get_duration(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
         return modified_duration
 
 
+def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike,
+                          futures_price, conver_factor, delivery_datelike):
+    """ Calculate implied repo rate from bond and futures specs
+    :param coupon: coupon percentage of bond, e.g. 2.875
+    :param bond_price: clean price of bond
+    :param maturity_datelike: maturity date of bond
+    :param settle_datelike: settlement date of bond (business day after trade date)
+    :param futures_price: price of futures contract
+    :param conver_factor: conversion factor of futures contract
+    :param delivery_datelike: last delivery date (NOT maturity date) of futures
+    :return: implied repo rate in percent
+    """
+    maturity_date = datelike_to_timestamp(maturity_datelike)
+    settle_date = datelike_to_timestamp(settle_datelike)
+    delivery_date = datelike_to_timestamp(delivery_datelike)
+    # Find coupon dates and related accruals
+    coupon_payment = coupon/2
+    settle_prev_coupon_date, settle_next_coupon_date, settle_days_in_period, settle_days_since_coupon = \
+        get_coupon_status(maturity_date, settle_date)
+    settle_elapsed_period = settle_days_since_coupon / settle_days_in_period
+    settle_accrued_interest = settle_elapsed_period * coupon_payment
+    if delivery_date > settle_next_coupon_date:
+        # Special case that there is a coupon between settle date and futures delivery
+        _, _, delivery_days_in_period, delivery_days_since_coupon = \
+            get_coupon_status(maturity_date, delivery_date)
+        delivery_elapsed_period = delivery_days_since_coupon / delivery_days_in_period
+        special_coupon_payment = coupon_payment     # Yes special coupon
+    else:
+        delivery_elapsed_period = (delivery_date - settle_prev_coupon_date).days / settle_days_in_period
+        special_coupon_payment = 0  # No special coupon
+    delivery_accrued_interest = delivery_elapsed_period * coupon_payment
+    # Calculate named factors needed for rate
+    futures_gain = futures_price * conver_factor    # Immediate gain from short futures
+    bond_cost = bond_price + settle_accrued_interest    # Immediate cost from long bond
+    bond_eventual_gain = delivery_accrued_interest + special_coupon_payment     # Delivery date gain from long bond
+    settle_elapsed_period_360 = (delivery_date - settle_date).days / 360
+    special_coupon_elapsed_period_360 = (delivery_date - settle_next_coupon_date).days / 360    # Only for special case
+    implied_repo_rate = \
+        ((futures_gain - bond_cost + bond_eventual_gain) /
+         (bond_cost*settle_elapsed_period_360 - special_coupon_payment*special_coupon_elapsed_period_360)) * 100
+    return implied_repo_rate
+
+
 ###############################################################################
 
 if __name__ == '__main__':
@@ -229,7 +272,7 @@ if __name__ == '__main__':
     if np.isclose(true_ytm, calculated_ytm):
         print("PASS")
     else:
-        print("!!!FAILED!!!")
+        print("****FAILED****")
     
     print("\nExample 2: 20 Non-Whole Coupon Periods\n")
     true_clean_price = 99.4375
@@ -246,7 +289,7 @@ if __name__ == '__main__':
     if np.isclose(true_clean_price, calculated_clean_price):
         print("PASS")
     else:
-        print("!!!FAILED!!!")
+        print("****FAILED****")
     print("On settlement date, we are 57 days into the 184 days of coupon period")
     true_dirty_price = true_clean_price + 57/184 * 3.875/2
     print(f"True Dirty Price: true_clean_price + 57/184 * 3.875/2 = {true_dirty_price}")
@@ -257,7 +300,7 @@ if __name__ == '__main__':
     if np.isclose(true_dirty_price, calculated_dirty_price):
         print("PASS")
     else:
-        print("!!!FAILED!!!")
+        print("****FAILED****")
 
     print("\nExample 3: Duration\n")
     true_macaulay = 1.2215
@@ -266,14 +309,34 @@ if __name__ == '__main__':
     if np.isclose(true_macaulay, calculated_macaulay):
         print("PASS")
     else:
-        print("!!!FAILED!!!")
+        print("****FAILED****")
     true_modified = 0.4055
     calculated_modified = get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22')
     print(f"get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'): {calculated_modified}")
     if np.isclose(true_modified, calculated_modified):
         print("PASS")
     else:
-        print("!!!FAILED!!!")
+        print("****FAILED****")
+
+    print("\nExample 4: Implied Repo Rate\n")
+    true_implied_repo_rate = -2.129
+    test_coupon = 2.25
+    test_bond_price = 103 + 22.75/32
+    test_maturity_datelike = '2/15/27'
+    test_settle_datelike = '1/22/20'
+    test_futures_price = 129 + 16/32
+    test_conver_factor = 0.7943
+    test_delivery_datelike = '03/31/20'
+    calculated_implied_repo_rate = \
+        get_implied_repo_rate(test_coupon, test_bond_price, test_maturity_datelike, test_settle_datelike,
+                              test_futures_price, test_conver_factor, test_delivery_datelike)
+    print(f"get_implied_repo_rate({test_coupon}, {test_bond_price}, {test_maturity_datelike}, {test_settle_datelike},\n"
+          f"                      {test_futures_price}, {test_conver_factor}, {test_delivery_datelike}): "
+          f"{calculated_implied_repo_rate}")
+    if np.isclose(true_implied_repo_rate, round(calculated_implied_repo_rate, 3)):
+        print("PASS")
+    else:
+        print("****FAILED****")
 
 """ Expected Output:
 Example 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)
@@ -308,5 +371,11 @@ Example 3: Duration
 get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True): 1.2215000001576344
 PASS
 get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'): 0.40550000045334145
+PASS
+
+Example 4: Implied Repo Rate
+
+get_implied_repo_rate(2.25, 103.7109375, 2/15/27, 1/22/20,
+                      129.5, 0.7943, 03/31/20): -2.128949495660515
 PASS
 """
