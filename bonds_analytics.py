@@ -261,29 +261,34 @@ def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike
 
 def get_conversion_factor(coupon, maturity_datelike, delivery_datelike, tenor):
     maturity_date = datelike_to_timestamp(maturity_datelike)
-    delivery_date = datelike_to_timestamp(delivery_datelike).replace(day=1)
-    del_date_in_mat_year = change_year(delivery_date, maturity_date.year)   # Solve February 28 vs. 29 problems
-    if maturity_date.month == del_date_in_mat_year.month and maturity_date.day == del_date_in_mat_year.day:
-        # Special case - same date, i.e. pure whole years
-        whole_years = maturity_date.year - delivery_date.year
-        whole_months = 0
-    else:
-        if maturity_date.day < del_date_in_mat_year.day:
-            # Whole number months is one less than nominal number
-            month_modifier = -1
+    delivery_month = datelike_to_timestamp(delivery_datelike).replace(day=1)
+    # Solve for exact number of elapsed whole years and whole months
+    nominal_years = maturity_date.year - delivery_month.year
+    if delivery_month.month == maturity_date.month:
+        if delivery_month.day <= maturity_date.day:
+            # Whole year, no spare months
+            whole_years = nominal_years
+            whole_months = 0
         else:
-            month_modifier = 0
-        whole_months = (maturity_date.month - del_date_in_mat_year.month) % 12 + month_modifier
-        if maturity_date.month < del_date_in_mat_year.month:
-            # Whole number years is one less than nominal number
-            year_modifier = -1
-        else:
-            year_modifier = 0
-        whole_years = maturity_date.year - delivery_date.year + year_modifier
-        if whole_months < 0:
-            # Raggedy way of handling special case of same month but not exactly a year yet
-            whole_years -= 1
+            # Just under a whole year, i.e. one less than nominal with 11 spare months
+            whole_years = nominal_years - 1
             whole_months = 11
+    elif delivery_month.month < maturity_date.month:
+        # Whole year, spare months depends on whether day-of-month has passed
+        whole_years = nominal_years
+        nominal_months = maturity_date.month - delivery_month.month
+        if delivery_month.day <= maturity_date.day:
+            whole_months = nominal_months
+        else:
+            whole_months = nominal_months - 1
+    else:
+        # Under a whole year, spare months depends on whether day-of-month has passed
+        whole_years = nominal_years - 1
+        nominal_months = (maturity_date.month - delivery_month.month) % 12
+        if delivery_month.day <= maturity_date.day:
+            whole_months = nominal_months
+        else:
+            whole_months = nominal_months - 1
     # Officially defined calculation
     n = whole_years
     z = whole_months//3 if tenor in [10, 30] else whole_months
