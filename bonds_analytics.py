@@ -7,7 +7,33 @@ DAY_OFFSET = pd.DateOffset(days=1)
 ONE_YEAR = pd.Timedelta(days=365)
 
 
-def change_6_months(datelike):
+def is_end_of_month(datelike):
+    """ Return True iff date is last date in month
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :return: Boolean
+    """
+    date = datelike_to_timestamp(datelike)
+    next_date = date + DAY_OFFSET
+    return True if date.month != next_date.month else False
+
+
+def change_month(datelike, new_month):
+    """ Return date with month changed to specified month
+        NOTE: an end of month date will return the last day of the new month
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :param new_month: month to change the given date's month to
+    :return: pd.Timestamp
+    """
+    date = datelike_to_timestamp(datelike)
+    next_date = date + DAY_OFFSET
+    if date.month != next_date.month:
+        # Date is end-of-month; handle end of month differences
+        return next_date.replace(month=new_month+1) - DAY_OFFSET
+    else:
+        return date.replace(month=new_month)
+
+
+def forward_6_months(datelike):
     """ Return date that is 6 months forward
         NOTE: an end of month date will return the last day of the month that is 6 months forward
     :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
@@ -57,7 +83,7 @@ def get_coupon_status(maturity_datelike, settle_datelike):
     maturity_date = datelike_to_timestamp(maturity_datelike)
     settle_date = datelike_to_timestamp(settle_datelike)
     year = settle_date.year
-    maturity_date_6_months = change_6_months(maturity_date)
+    maturity_date_6_months = forward_6_months(maturity_date)
     # Create timeline of coupons close to settle date
     nearest_coupons_timeline = pd.Series(sorted(
         [change_year(maturity_date, year - 1), change_year(maturity_date_6_months, year - 1),
@@ -259,39 +285,74 @@ def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike
     return implied_repo_rate
 
 
-def get_conversion_factor(coupon, maturity_datelike, delivery_datelike, tenor):
-    maturity_date = datelike_to_timestamp(maturity_datelike)
-    delivery_month = datelike_to_timestamp(delivery_datelike).replace(day=1)
-    # Solve for exact number of elapsed whole years and whole months
-    nominal_years = maturity_date.year - delivery_month.year
-    if delivery_month.month == maturity_date.month:
-        if delivery_month.day <= maturity_date.day:
-            # Whole year, no spare months
+def get_whole_year_month_day_difference(datelike_1, datelike_2):
+    """ Calculate number of whole years, whole spare months, and spare days between two dates
+        NOTE: an end of month date will be a whole number of months from another end of month date
+    :param datelike_1: earlier date
+    :param datelike_2: later date
+    :return: numerical tuple - (whole_years, whole_months, whole_days)
+    """
+    date_1 = datelike_to_timestamp(datelike_1)
+    date_2 = datelike_to_timestamp(datelike_2)
+    date_1_in_date_2_year = change_year(date_1, date_2.year)    # Solve issues with Feb 28/29 being the same day
+    # Set flag if both dates are end of month so they are specifically treated as a whole number of months apart
+    if is_end_of_month(date_1) and is_end_of_month(date_2):
+        end_of_month_match = True
+    else:
+        end_of_month_match = False
+    # Calculate whole years and whole months difference
+    nominal_years = date_2.year - date_1.year
+    if date_1_in_date_2_year.month == date_2.month:
+        if date_1_in_date_2_year.day <= date_2.day or end_of_month_match:
+            # Just over a whole year; no spare months
             whole_years = nominal_years
             whole_months = 0
         else:
-            # Just under a whole year, i.e. one less than nominal with 11 spare months
+            # Just under a whole year, i.e. one less than nominal years with 11 spare months
             whole_years = nominal_years - 1
             whole_months = 11
-    elif delivery_month.month < maturity_date.month:
-        # Whole year, spare months depends on whether day-of-month has passed
+    elif date_1_in_date_2_year.month < date_2.month:
+        # Over a whole year; spare months depends on whether day-of-month has passed
         whole_years = nominal_years
-        nominal_months = maturity_date.month - delivery_month.month
-        if delivery_month.day <= maturity_date.day:
+        nominal_months = date_2.month - date_1_in_date_2_year.month
+        if date_1_in_date_2_year.day <= date_2.day or end_of_month_match:
             whole_months = nominal_months
         else:
             whole_months = nominal_months - 1
     else:
-        # Under a whole year, spare months depends on whether day-of-month has passed
+        # Under a whole year; spare months depends on whether day-of-month has passed
         whole_years = nominal_years - 1
-        nominal_months = (maturity_date.month - delivery_month.month) % 12
-        if delivery_month.day <= maturity_date.day:
+        nominal_months = (date_2.month - date_1_in_date_2_year.month) % 12
+        if date_1_in_date_2_year.day <= date_2.day or end_of_month_match:
             whole_months = nominal_months
         else:
             whole_months = nominal_months - 1
+    # Calculate spare days difference
+    if end_of_month_match:
+        # Avoid trying to calculate day difference - if both are end of month, then no spare days
+        whole_days = 0
+    else:
+        whole_year_month_forward_date = (change_year(date_1, date_1.year+whole_years)
+                                         + pd.DateOffset(months=whole_months))
+        whole_days = (date_2 - whole_year_month_forward_date).days
+    return whole_years, whole_months, whole_days
+
+
+def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor):
+    """ Calculate Treasury futures conversion factor - approximate decimal price
+        at which $1 par of security would trade if it had a 6% yield to maturity
+    :param coupon: coupon percentage of bond, e.g. 2.875
+    :param maturity_datelike: maturity date of bond
+    :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's March (H)
+    :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
+    :return: numerical conversion factor
+    """
+    coupon = coupon / 100
+    delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
+    whole_years, whole_months, _ = get_whole_year_month_day_difference(delivery_month, maturity_datelike)
     # Officially defined calculation
     n = whole_years
-    z = whole_months//3 if tenor in [10, 30] else whole_months
+    z = whole_months//3*3 if tenor in [10, 30] else whole_months  # Round down to quarter for 10-, 30-year
     v = z if z < 7 else (3 if tenor in [10, 30] else z-6)
     a = (1/1.03)**(v/6)
     b = coupon/2 * (6-v)/6
@@ -315,7 +376,7 @@ if __name__ == '__main__':
         print("PASS")
     else:
         print("****FAILED****")
-    
+
     print("\nExample 2: 20 Non-Whole Coupon Periods\n")
     true_clean_price = 99.4375
     print(f"True Clean Price: {true_clean_price}")
@@ -380,6 +441,47 @@ if __name__ == '__main__':
     else:
         print("****FAILED****")
 
+    print("\nExample 5: Whole Year, Month, Day Difference\n")
+    print("First day of December 2008 delivery month to October 31, 2010 is {0} year(s), {1} months, {2} days."
+          .format(*get_whole_year_month_day_difference('2008-12-01', '2010-10-31')))
+    print("First day of March 2009 delivery month to January 15, 2012 is {0} year(s), {1} months, {2} days."
+          .format(*get_whole_year_month_day_difference('2009-03-01', '2012-01-15')))
+    print("First day of December 2008 delivery month to October 31, 2013 is {0} year(s), {1} months, {2} days."
+          .format(*get_whole_year_month_day_difference('2008-12-01', '2013-10-31')))
+    print("First day of December 2008 delivery month to November 15, 2018 is {0} year(s), {1} months, {2} days."
+          .format(*get_whole_year_month_day_difference('2008-12-01', '2018-11-15')))
+    print("First day of December 2008 delivery month to May 15, 2038 is {0} year(s), {1} months, {2} days."
+          .format(*get_whole_year_month_day_difference('2008-12-01', '2038-05-15')))
+    if (get_whole_year_month_day_difference('2008-12-01', '2010-10-31') == (1, 10, 30)
+            and get_whole_year_month_day_difference('2009-03-01', '2012-01-15') == (2, 10, 14)
+            and get_whole_year_month_day_difference('2008-12-01', '2013-10-31') == (4, 10, 30)
+            and get_whole_year_month_day_difference('2008-12-01', '2018-11-15') == (9, 11, 14)
+            and get_whole_year_month_day_difference('2008-12-01', '2038-05-15') == (29, 5, 14)
+            and get_whole_year_month_day_difference('2008-02-29', '2038-02-28') == (30, 0, 0)
+            and get_whole_year_month_day_difference('2007-03-31', '2047-04-30') == (40, 1, 0)):
+        print("PASS")
+    else:
+        print("****FAILED****")
+
+    print("\nExample 6: Conversion Factors\n")
+    print("The following are the 5 examples provided on the CME website for calculating\n"
+          "Treasury futures conversion factors:")
+    true_cfs = (0.922939, 0.874675, 0.865330, 0.835651, 0.794274)
+    test_parameters = ((1.5, '2010-10-31', '2008-12', 2),
+                       (1.125, '2012-01-15', '2009-3', 3),
+                       (2.75, '2013-10-31', '2008-12', 5),
+                       (3.75, '2018-11-15', '2008-12', 10),
+                       (4.5, '2038-05-15', '2008-12', 30))
+    for true_cf, (test_coupon, test_maturity, test_delivery_month, test_tenor) in zip(true_cfs, test_parameters):
+        result = get_conversion_factor(test_coupon, test_maturity, test_delivery_month, test_tenor)
+        print(f"{test_tenor}-year:\n"
+              f"    {test_delivery_month} futures delivering {test_coupon}s of {test_maturity}:\n"
+              f"    {result}")
+        if np.isclose(true_cf, result):
+            print("PASS")
+        else:
+            print("****FAILED****")
+
 """ Expected Output:
 Example 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)
 
@@ -419,5 +521,36 @@ Example 4: Implied Repo Rate
 
 get_implied_repo_rate(2.25, 103.7109375, 2/15/27, 1/22/20,
                       129.5, 0.7943, 03/31/20): -2.128949495660515
+PASS
+
+Example 5: Whole Year, Month, Day Difference
+First day of December 2008 delivery month to October 31, 2010 is 1 year(s), 10 months, 30 days.
+First day of March 2009 delivery month to January 15, 2012 is 2 year(s), 10 months, 14 days.
+First day of December 2008 delivery month to October 31, 2013 is 4 year(s), 10 months, 30 days.
+First day of December 2008 delivery month to November 15, 2018 is 9 year(s), 11 months, 14 days.
+First day of December 2008 delivery month to May 15, 2038 is 29 year(s), 5 months, 14 days.
+PASS
+Example 6: Conversion Factors
+The following are the 5 examples provided on the CME website for calculating
+Treasury futures conversion factors:
+2-year:
+    2008-12 futures delivering 1.5s of 2010-10-31:
+    0.9229387996542004
+PASS
+3-year:
+    2009-3 futures delivering 1.125s of 2012-01-15:
+    0.8746751408285686
+PASS
+5-year:
+    2008-12 futures delivering 2.75s of 2013-10-31:
+    0.8653299817325179
+PASS
+10-year:
+    2008-12 futures delivering 3.75s of 2018-11-15:
+    0.8356505424979301
+PASS
+30-year:
+    2008-12 futures delivering 4.5s of 2038-05-15:
+    0.7942738875657215
 PASS
 """
