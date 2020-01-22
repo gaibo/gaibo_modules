@@ -259,6 +259,43 @@ def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike
     return implied_repo_rate
 
 
+def get_conversion_factor(coupon, maturity_datelike, delivery_datelike, tenor):
+    maturity_date = datelike_to_timestamp(maturity_datelike)
+    delivery_date = datelike_to_timestamp(delivery_datelike).replace(day=1)
+    del_date_in_mat_year = change_year(delivery_date, maturity_date.year)   # Solve February 28 vs. 29 problems
+    if maturity_date.month == del_date_in_mat_year.month and maturity_date.day == del_date_in_mat_year.day:
+        # Special case - same date, i.e. pure whole years
+        whole_years = maturity_date.year - delivery_date.year
+        whole_months = 0
+    else:
+        if maturity_date.day < del_date_in_mat_year.day:
+            # Whole number months is one less than nominal number
+            month_modifier = -1
+        else:
+            month_modifier = 0
+        whole_months = (maturity_date.month - del_date_in_mat_year.month) % 12 + month_modifier
+        if maturity_date.month < del_date_in_mat_year.month:
+            # Whole number years is one less than nominal number
+            year_modifier = -1
+        else:
+            year_modifier = 0
+        whole_years = maturity_date.year - delivery_date.year + year_modifier
+        if whole_months < 0:
+            # Raggedy way of handling special case of same month but not exactly a year yet
+            whole_years -= 1
+            whole_months = 11
+    # Officially defined calculation
+    n = whole_years
+    z = whole_months//3 if tenor in [10, 30] else whole_months
+    v = z if z < 7 else (3 if tenor in [10, 30] else z-6)
+    a = (1/1.03)**(v/6)
+    b = coupon/2 * (6-v)/6
+    c = (1/1.03)**(2*n) if z < 7 else (1/1.03)**(2*n+1)
+    d = coupon/0.06 * (1-c)
+    factor = a * (coupon/2 + c + d) - b
+    return factor
+
+
 ###############################################################################
 
 if __name__ == '__main__':
