@@ -1,10 +1,13 @@
 import pandas as pd
 import numpy as np
+from os import listdir
 from scipy.optimize import root
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
+from options_futures_expirations_v3 import BUSDAY_OFFSET
 
 DAY_OFFSET = pd.DateOffset(days=1)
 ONE_YEAR = pd.Timedelta(days=365)
+TREASURYDIRECT_UNIVERSE_DIR = 'P:/ProductDevelopment/Database/Production/Treasury_VIX/Files/'
 
 
 def is_end_of_month(datelike):
@@ -63,6 +66,8 @@ def change_year(datelike, new_year):
     :param new_year: year to change given date's year to
     :return: pd.Timestamp
     """
+    if pd.isna(new_year):
+        return pd.NaT   # Necessary because real Timestamps cannot have year replaced with np.NaN
     date = datelike_to_timestamp(datelike)
     # Handle end of February, which may change depending on year
     if date.month == 2 and date.day == 28 and is_leap_year(new_year):
@@ -130,7 +135,7 @@ def get_price_from_yield(coupon, ytm_bey, maturity_datelike=None, settle_datelik
                          n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
                          get_clean=False, verbose=False):
     """ Calculate dirty price of semiannual coupon bond
-        NOTE: In order to derive the maturity, please supply one of the following three configurations:
+        NOTE: in order to derive the maturity, please supply one of the following three configurations:
               1) maturity_datelike and settle_datelike
               2) n_remaining_coupons and (optional) remaining_first_period
               3) remaining_coupon_periods
@@ -174,7 +179,7 @@ def get_yield_to_maturity(coupon, price, maturity_datelike=None, settle_datelike
                           n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
                           is_clean_price=False):
     """ Back out bond equivalent yield to maturity from bond specs, price, and time to maturity
-        NOTE: In order to derive the maturity, please supply one of the following three configurations:
+        NOTE: in order to derive the maturity, please supply one of the following three configurations:
               1) maturity_datelike and settle_datelike
               2) n_remaining_coupons and (optional) remaining_first_period
               3) remaining_coupon_periods
@@ -205,7 +210,7 @@ def get_duration(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
                  n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
                  get_macaulay=False):
     """ Calculate duration (modified or Macaulay) from coupon, yield, and time to maturity
-        NOTE: In order to derive the maturity, please supply one of the following three configurations:
+        NOTE: in order to derive the maturity, please supply one of the following three configurations:
               1) maturity_datelike and settle_datelike
               2) n_remaining_coupons and (optional) remaining_first_period
               3) remaining_coupon_periods
@@ -243,20 +248,33 @@ def get_duration(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
 
 
 def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike,
-                          futures_price, conver_factor, delivery_datelike):
+                          futures_price, conver_factor, delivery_datelike, delivery_monthlike=None, tenor=None):
     """ Calculate implied repo rate from bond and futures specs
+        NOTE: delivery_monthlike and tenor can be supplied together as an alternative to delivery_datelike
     :param coupon: coupon percentage of bond, e.g. 2.875
     :param bond_price: clean price of bond
     :param maturity_datelike: maturity date of bond
     :param settle_datelike: settlement date of bond (business day after trade date)
     :param futures_price: price of futures contract
     :param conver_factor: conversion factor of futures contract
-    :param delivery_datelike: last delivery date (NOT maturity date) of futures
+    :param delivery_datelike: last delivery date (NOT maturity date) of futures; set None to use month and tenor
+    :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's 2020-03
+    :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
     :return: implied repo rate in percent
     """
     maturity_date = datelike_to_timestamp(maturity_datelike)
     settle_date = datelike_to_timestamp(settle_datelike)
-    delivery_date = datelike_to_timestamp(delivery_datelike)
+    if delivery_datelike is None:
+        # Derive delivery date from month and tenor
+        delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
+        if tenor in [10, 30]:
+            # Last trading day of month
+            delivery_date = delivery_month + pd.DateOffset(months=1) - BUSDAY_OFFSET
+        else:
+            # 3rd trading day of next month
+            delivery_date = delivery_month + pd.DateOffset(months=1) - DAY_OFFSET + 3*BUSDAY_OFFSET
+    else:
+        delivery_date = datelike_to_timestamp(delivery_datelike)
     # Find coupon dates and related accruals
     coupon_payment = coupon/2
     settle_prev_coupon_date, settle_next_coupon_date, settle_days_in_period, settle_days_since_coupon = \
@@ -294,6 +312,8 @@ def get_whole_year_month_day_difference(datelike_1, datelike_2):
     """
     date_1 = datelike_to_timestamp(datelike_1)
     date_2 = datelike_to_timestamp(datelike_2)
+    if pd.isna(date_1) or pd.isna(date_2):
+        return np.NaN, np.NaN, np.NaN   # Necessary because pd.DateOffset does not accept np.NaN months
     date_1_in_date_2_year = change_year(date_1, date_2.year)    # Solve issues with Feb 28/29 being the same day
     # Set flag if both dates are end of month so they are specifically treated as a whole number of months apart
     if is_end_of_month(date_1) and is_end_of_month(date_2):
@@ -343,7 +363,7 @@ def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor):
         at which $1 par of security would trade if it had a 6% yield to maturity
     :param coupon: coupon percentage of bond, e.g. 2.875
     :param maturity_datelike: maturity date of bond
-    :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's March (H)
+    :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's 2020-03
     :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
     :return: numerical conversion factor
     """
@@ -360,6 +380,77 @@ def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor):
     d = coupon/0.06 * (1-c)
     factor = a * (coupon/2 + c + d) - b
     return factor
+
+
+def _get_cme_yearmonth_differences(earlier_dates, later_dates, tenor):
+    """ Helper: Calculate CME-style year-month differences between two arrays of Timestamps
+    :param earlier_dates: array of earlier Timestamps
+    :param later_dates: array of later Timestamps
+    :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
+    :return: pd.Series of years plus whole month fractions, e.g. 15, 10.25, 11.1666
+    """
+    combined_df = pd.DataFrame({'earlier': earlier_dates, 'later': later_dates})
+    ymd_tuples = \
+        combined_df.apply(lambda row: get_whole_year_month_day_difference(row['earlier'], row['later']), axis=1)
+    ymd_df = pd.DataFrame(ymd_tuples.tolist(), index=ymd_tuples.index, columns=['years', 'months', 'days'])
+    if tenor in [10, 30]:
+        ymd_df['months_modified'] = ymd_df['months']//3*3
+    else:
+        ymd_df['months_modified'] = ymd_df['months']
+    ymd_df['CME_difference'] = ymd_df['years'] + ymd_df['months_modified']/12
+    return ymd_df['CME_difference']
+
+
+def get_delivery_basket(delivery_monthlike, tenor):
+    """ Return delivery basket for given futures month and tenor
+        NOTE: automatically looks up latest locally available notes/bonds universe file
+    :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's 2020-03
+    :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
+    :return: pd.DataFrame of deliverable notes/bonds
+    """
+    # Load the latest notes/bonds universe, pulled to local from Treasury Direct
+    latest_universe_file = sorted([f for f in listdir(TREASURYDIRECT_UNIVERSE_DIR)
+                                   if f.endswith('_notesbonds_universe.csv')])[-1]
+    print(latest_universe_file + " read.")
+    fields = ['cusip', 'interestRate', 'maturityDate', 'issueDate',
+              'securityType', 'securityTerm', 'callDate', 'interestPaymentFrequency']
+    universe = pd.read_csv(f'{TREASURYDIRECT_UNIVERSE_DIR}{latest_universe_file}',
+                           usecols=fields, parse_dates=['maturityDate', 'issueDate', 'callDate'])
+    # Throw out non-semiannual notes/bonds since Treasury futures do not deliver them
+    no_semiannual = universe[universe['interestPaymentFrequency'] == 'Semi-Annual'].copy()
+    # Calculate 1) "original term to maturity (from latest note/bond re-issue)"
+    #           2) "remaining term to maturity (from futures delivery month)" ("to first call" if callable)
+    no_semiannual['originalTermToMaturity'] = \
+        _get_cme_yearmonth_differences(no_semiannual['issueDate'], no_semiannual['maturityDate'], tenor)
+    delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
+    delivery_month_series = pd.Series(delivery_month, index=no_semiannual.index)
+    no_semiannual['remainingTermToFirstCall'] = \
+        _get_cme_yearmonth_differences(delivery_month_series, no_semiannual['callDate'], tenor)
+    no_semiannual['remainingTermToMaturity'] = \
+        _get_cme_yearmonth_differences(delivery_month_series, no_semiannual['maturityDate'], tenor)
+    no_semiannual.loc[no_semiannual['callDate'].notna(), 'remainingTermToMaturity'] = \
+        no_semiannual.loc[no_semiannual['callDate'].notna(), 'remainingTermToFirstCall']
+    # Use the two fields to determine subset that is deliverable for tenor
+    if tenor == 2:
+        basket = no_semiannual[(no_semiannual['originalTermToMaturity'] <= (5+3/12))
+                               & (no_semiannual['remainingTermToMaturity'] >= (1+9/12))
+                               & (no_semiannual['remainingTermToMaturity'] <= 2)].copy()
+    elif tenor == 5:
+        basket = no_semiannual[(no_semiannual['originalTermToMaturity'] <= (5+3/12))
+                               & (no_semiannual['remainingTermToMaturity'] >= (4+2/12))].copy()
+    elif tenor == 10:
+        basket = no_semiannual[(no_semiannual['originalTermToMaturity'] <= 10)
+                               & (no_semiannual['remainingTermToMaturity'] >= (6+6/12))].copy()
+    elif tenor == 30:
+        basket = no_semiannual[(no_semiannual['remainingTermToMaturity'] >= 15)
+                               & (no_semiannual['remainingTermToMaturity'] < 25)].copy()
+    else:
+        raise ValueError(f"Tenor of '{tenor}' is currently unsupported.")
+    # Calculate futures conversion factor to help with eventually calculating implied repo rate/cheapest-to-deliver
+    basket['conversionFactor'] = \
+        basket.apply(lambda row:
+                     get_conversion_factor(row['interestRate'], row['maturityDate'], delivery_month, tenor), axis=1)
+    return basket.drop(['callDate', 'interestPaymentFrequency', 'remainingTermToFirstCall'], axis=1)
 
 
 ###############################################################################
@@ -429,12 +520,14 @@ if __name__ == '__main__':
     test_settle_datelike = '1/22/20'
     test_futures_price = 129 + 16/32
     test_conver_factor = 0.7943
-    test_delivery_datelike = '03/31/20'
+    test_delivery_monthlike = '03/01/20'    # Delivery date is 03/31/20, but we'll derive that
+    test_tenor = 10
     calculated_implied_repo_rate = \
         get_implied_repo_rate(test_coupon, test_bond_price, test_maturity_datelike, test_settle_datelike,
-                              test_futures_price, test_conver_factor, test_delivery_datelike)
+                              test_futures_price, test_conver_factor, None, test_delivery_monthlike, test_tenor)
     print(f"get_implied_repo_rate({test_coupon}, {test_bond_price}, {test_maturity_datelike}, {test_settle_datelike},\n"
-          f"                      {test_futures_price}, {test_conver_factor}, {test_delivery_datelike}): "
+          f"                      {test_futures_price}, {test_conver_factor}, "
+          f"None, {test_delivery_monthlike}, {test_tenor}): "
           f"{calculated_implied_repo_rate}")
     if np.isclose(true_implied_repo_rate, round(calculated_implied_repo_rate, 3)):
         print("PASS")
