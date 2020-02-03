@@ -401,23 +401,31 @@ def _get_cme_yearmonth_differences(earlier_dates, later_dates, tenor):
     return ymd_df['CME_difference']
 
 
-def get_delivery_basket(delivery_monthlike, tenor):
+def get_delivery_basket(delivery_monthlike, tenor, as_of_datelike=None):
     """ Return delivery basket for given futures month and tenor
         NOTE: automatically looks up latest locally available notes/bonds universe file
     :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's 2020-03
     :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
+    :param as_of_datelike: historical date on which to deduce delivery basket; set None for present day
     :return: pd.DataFrame of deliverable notes/bonds
     """
     # Load the latest notes/bonds universe, pulled to local from Treasury Direct
     latest_universe_file = sorted([f for f in listdir(TREASURYDIRECT_UNIVERSE_DIR)
-                                   if f.endswith('_notesbonds_universe.csv')])[-1]
-    print(latest_universe_file + " read.")
+                                   if f.endswith('_notesbonds_universe_history.csv')])[-1]
     fields = ['cusip', 'interestRate', 'maturityDate', 'issueDate',
               'securityType', 'securityTerm', 'callDate', 'interestPaymentFrequency']
     universe = pd.read_csv(f'{TREASURYDIRECT_UNIVERSE_DIR}{latest_universe_file}',
                            usecols=fields, parse_dates=['maturityDate', 'issueDate', 'callDate'])
+    print(latest_universe_file + " read.")
+    # View subset of universe history that was available on the as-of date, only latest re-issue
+    if as_of_datelike is not None:
+        as_of_date = datelike_to_timestamp(as_of_datelike)
+    else:
+        as_of_date = pd.Timestamp('now')
+    available_universe = (universe[universe['issueDate'] <= as_of_date]
+                          .drop_duplicates('cusip', keep='first').set_index('cusip'))
     # Throw out non-semiannual notes/bonds since Treasury futures do not deliver them
-    no_semiannual = universe[universe['interestPaymentFrequency'] == 'Semi-Annual'].copy()
+    no_semiannual = available_universe[available_universe['interestPaymentFrequency'] == 'Semi-Annual'].copy()
     # Calculate 1) "original term to maturity (from latest note/bond re-issue)"
     #           2) "remaining term to maturity (from futures delivery month)" ("to first call" if callable)
     no_semiannual['originalTermToMaturity'] = \
@@ -575,6 +583,21 @@ if __name__ == '__main__':
         else:
             print("****FAILED****")
 
+    print("\nExample 7: Delivery Baskets\n")
+    delivery_baskets_df = pd.read_csv('P:/PrdDevSharedDB/CME Data/TYVIX Basis Point Vol Documentation/Deliverables/'
+                                      'delivery_baskets_2020HMU_2020-01-09.csv')
+    for test_tenor in [('TU', 2), ('FV', 5), ('TY', 10), ('US', 30)]:
+        for test_month in [('H', '03'), ('M', '06'), ('U', '09')]:
+            for test_year in [('0', '2020')]:
+                true_basket = set(delivery_baskets_df[test_tenor[0]+test_month[0]+test_year[0]].dropna())
+                calculated_basket = set(get_delivery_basket(test_year[1]+'-'+test_month[1],
+                                                            test_tenor[1], '2020-01-09').index)
+                print(f'Test: {test_tenor[0]+test_month[0]+test_year[0]}')
+                if calculated_basket == true_basket:
+                    print("PASS")
+                else:
+                    print("****FAILED****")
+
 """ Expected Output:
 Example 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)
 
@@ -617,13 +640,16 @@ get_implied_repo_rate(2.25, 103.7109375, 2/15/27, 1/22/20,
 PASS
 
 Example 5: Whole Year, Month, Day Difference
+
 First day of December 2008 delivery month to October 31, 2010 is 1 year(s), 10 months, 30 days.
 First day of March 2009 delivery month to January 15, 2012 is 2 year(s), 10 months, 14 days.
 First day of December 2008 delivery month to October 31, 2013 is 4 year(s), 10 months, 30 days.
 First day of December 2008 delivery month to November 15, 2018 is 9 year(s), 11 months, 14 days.
 First day of December 2008 delivery month to May 15, 2038 is 29 year(s), 5 months, 14 days.
 PASS
+
 Example 6: Conversion Factors
+
 The following are the 5 examples provided on the CME website for calculating
 Treasury futures conversion factors:
 2-year:
@@ -645,5 +671,44 @@ PASS
 30-year:
     2008-12 futures delivering 4.5s of 2038-05-15:
     0.7942738875657215
+PASS
+
+Example 7: Delivery Baskets
+
+2020-02-03_notesbonds_universe_history.csv read.
+Test: TUH0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: TUM0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: TUU0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: FVH0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: FVM0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: FVU0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: TYH0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: TYM0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: TYU0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: USH0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: USM0
+PASS
+2020-02-03_notesbonds_universe_history.csv read.
+Test: USU0
 PASS
 """
