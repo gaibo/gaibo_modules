@@ -7,6 +7,19 @@ EXPMONTH_CODES_DICT = {1: 'F', 2: 'G', 3: 'H', 4: 'J', 5: 'K', 6: 'M',
                        7: 'N', 8: 'Q', 9: 'U', 10: 'V', 11: 'X', 12: 'Z'}
 
 
+def month_to_quarter_shifter(month, shift=-1):
+    """ Obtain any quarterly month given an input month using flexible shifting
+        Flexibility of this function lies in experimenting with the shift parameter, e.g.:
+        - shift=-1 (default) returns [3,  3,  3,  6,  6,  6,  9,  9,  9, 12, 12, 12]
+        - shift=0 returns            [3,  3,  6,  6,  6,  9,  9,  9, 12, 12, 12,  3]
+        - shift=2 returns            [6,  6,  6,  9,  9,  9, 12, 12, 12,  3,  3,  3]
+    :param month: input month number(s); arrays above are returned when np.arange(1, 13) is inputted
+    :param shift: see explanation above
+    :return: "shifted" quarterly month number(s)
+    """
+    return ((month+shift) // 3 % 4 + 1) * 3
+
+
 def undl_fut_quarter_month(opt_contr_month):
     """ Find the Treasury future month underlying the Treasury option month
     :param opt_contr_month: numerical month of the options month code;
