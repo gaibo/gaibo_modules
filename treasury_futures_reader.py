@@ -27,8 +27,8 @@ def undl_fut_quarter_month(opt_contr_month):
                             in August, but here would be referred to as 9 instead of 8
     :return: numerical month of the quarterly futures (can be used with EXPMONTH_CODES_DICT)
     """
-    # For actual month of expiration date, use: (opt_exp_month // 3 % 4 + 1) * 3
-    return (((opt_contr_month-1) // 3) + 1) * 3
+    # For actual month of expiration date, use: month_to_quarter_shifter(opt_exp_month, shift=0)
+    return (((opt_contr_month-1) // 3) + 1) * 3     # month_to_quarter_shifter(opt_contr_month, shift=-1)
 
 
 def load_fut_prices(file_dir=None, file_name=None):
