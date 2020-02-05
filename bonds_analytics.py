@@ -177,7 +177,7 @@ def get_price_from_yield(coupon, ytm_bey, maturity_datelike=None, settle_datelik
 
 def get_yield_to_maturity(coupon, price, maturity_datelike=None, settle_datelike=None,
                           n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
-                          is_clean_price=False):
+                          is_clean_price=True):
     """ Back out bond equivalent yield to maturity from bond specs, price, and time to maturity
         NOTE: in order to derive the maturity, please supply one of the following three configurations:
               1) maturity_datelike and settle_datelike
