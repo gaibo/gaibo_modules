@@ -105,6 +105,25 @@ def get_coupon_status(maturity_datelike, settle_datelike):
     return prev_coupon_date, next_coupon_date, days_in_period.days, days_since_coupon.days
 
 
+def clean_to_dirty(price, coupon, maturity_datelike, settle_datelike, reverse=False):
+    """ Convert bond price from clean to dirty (or the reverse)
+    :param price: clean (quoted) price of bond, unless reverse is True
+    :param coupon: coupon percentage of bond, e.g. 2.875
+    :param maturity_datelike: maturity date of bond
+    :param settle_datelike: settlement date of bond (business day after trade date)
+    :param reverse: set True to input dirty price and convert to clean
+    :return: dirty price of bond, unless reverse is True
+    """
+    _, _, days_in_period, days_since_coupon = get_coupon_status(maturity_datelike, settle_datelike)
+    accrued_interest = days_since_coupon/days_in_period * coupon/2
+    if reverse:
+        clean_price = price - accrued_interest
+        return clean_price
+    else:
+        dirty_price = price + accrued_interest
+        return dirty_price
+
+
 def get_remaining_coupon_periods(maturity_datelike=None, settle_datelike=None,
                                  n_remaining_coupons=None, remaining_first_period=1.0):
     """ Calculate array of (potentially non-whole) discount rate (coupon) periods
@@ -133,8 +152,8 @@ def get_remaining_coupon_periods(maturity_datelike=None, settle_datelike=None,
 
 def get_price_from_yield(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
                          n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
-                         get_clean=False, verbose=False):
-    """ Calculate dirty price of semiannual coupon bond
+                         get_dirty=False, verbose=False):
+    """ Calculate price of semiannual coupon bond from yield to maturity
         NOTE: in order to derive the maturity, please supply one of the following three configurations:
               1) maturity_datelike and settle_datelike
               2) n_remaining_coupons and (optional) remaining_first_period
@@ -146,9 +165,9 @@ def get_price_from_yield(coupon, ytm_bey, maturity_datelike=None, settle_datelik
     :param n_remaining_coupons: number of remaining coupons up to maturity of bond; set not None for configuration 2
     :param remaining_first_period: fraction of the first upcoming coupon period still remaining
     :param remaining_coupon_periods: numpy/pandas array; set not None for configuration 3
-    :param get_clean: set True to return clean price rather than dirty price
+    :param get_dirty: set True to return dirty price rather than clean (quoted) price
     :param verbose: set True to print discounted cash flows
-    :return: dirty price (unless get_clean is True) of bond with 100 as par
+    :return: clean price of bond (unless get_dirty is True) with 100 as par
     """
     if remaining_coupon_periods is None:
         # Derive (potentially non-whole) discount rate periods since they are not given
@@ -169,28 +188,28 @@ def get_price_from_yield(coupon, ytm_bey, maturity_datelike=None, settle_datelik
             print(f"Discounted Payment {i}: {discounted_payment}")
         print(f"Calculated Dirty Price: {calc_dirty_price}")
         print(f"Calculated Clean Price: {calc_clean_price}")
-    if get_clean:
-        return calc_clean_price
-    else:
+    if get_dirty:
         return calc_dirty_price
+    else:
+        return calc_clean_price
 
 
 def get_yield_to_maturity(coupon, price, maturity_datelike=None, settle_datelike=None,
                           n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
-                          is_clean_price=True):
+                          is_dirty_price=False):
     """ Back out bond equivalent yield to maturity from bond specs, price, and time to maturity
         NOTE: in order to derive the maturity, please supply one of the following three configurations:
               1) maturity_datelike and settle_datelike
               2) n_remaining_coupons and (optional) remaining_first_period
               3) remaining_coupon_periods
     :param coupon: coupon percentage of bond, e.g. 2.875
-    :param price: dirty price (unless is_clean_price is True) of bond
+    :param price: clean (quoted) price of bond, unless is_dirty_price is True
     :param maturity_datelike: maturity date of bond
     :param settle_datelike: settlement date of bond (business day after trade date)
     :param n_remaining_coupons: number of remaining coupons up to maturity of bond; set not None for configuration 2
     :param remaining_first_period: fraction of the first upcoming coupon period still remaining
     :param remaining_coupon_periods: numpy/pandas array; set not None for configuration 3
-    :param is_clean_price: set True if input price is clean (quoted) price rather than dirty price
+    :param is_dirty_price: set True if input price is dirty price
     :return: BEY yield to maturity in percent
     """
     if remaining_coupon_periods is None:
@@ -201,7 +220,7 @@ def get_yield_to_maturity(coupon, price, maturity_datelike=None, settle_datelike
     solved_root = root(lambda ytm_bey:
                        get_price_from_yield(coupon, ytm_bey, None, None,
                                             remaining_coupon_periods=remaining_coupon_periods,
-                                            get_clean=is_clean_price, verbose=False)
+                                            get_dirty=is_dirty_price, verbose=False)
                        - price, x0=np.array(2))
     return solved_root.x[0]
 
@@ -468,9 +487,9 @@ if __name__ == '__main__':
     true_ytm = 2.594
     print(f"True Yield to Maturity: {true_ytm}")
     calculated_price = get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True)
-    print(f"get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True): {calculated_price}")
+    print(f"get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True):\n{calculated_price}")
     calculated_ytm = get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30')
-    print(f"get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'): {calculated_ytm}")
+    print(f"get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'):\n{calculated_ytm}")
     if np.isclose(true_ytm, calculated_ytm):
         print("PASS")
     else:
@@ -479,15 +498,13 @@ if __name__ == '__main__':
     print("\nExample 2: 20 Non-Whole Coupon Periods\n")
     true_clean_price = 99.4375
     print(f"True Clean Price: {true_clean_price}")
-    calculated_yield = get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True)
-    print(f"get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True): "
+    calculated_yield = get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_dirty_price=False)
+    print(f"get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_dirty_price=False):\n"
           f"{calculated_yield}")
-    calculated_clean_price = get_price_from_yield(3.875, calculated_yield,
-                                                  n_remaining_coupons=20, remaining_first_period=1-57/184,
-                                                  get_clean=True)
-    print(f"get_price_from_yield(3.875, calculated_yield,\n"
-          f"                     n_remaining_coupons=20, remaining_first_period=1-57/184,\n"
-          f"                     get_clean=True): {calculated_clean_price}")
+    calculated_clean_price = get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,
+                                                  remaining_first_period=1-57/184, get_dirty=False)
+    print(f"get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,\n"
+          f"                     remaining_first_period=1-57/184, get_dirty=False):\n{calculated_clean_price}")
     if np.isclose(true_clean_price, calculated_clean_price):
         print("PASS")
     else:
@@ -495,10 +512,23 @@ if __name__ == '__main__':
     print("On settlement date, we are 57 days into the 184 days of coupon period")
     true_dirty_price = true_clean_price + 57/184 * 3.875/2
     print(f"True Dirty Price: true_clean_price + 57/184 * 3.875/2 = {true_dirty_price}")
-    calculated_dirty_price = get_price_from_yield(3.875, calculated_yield,
-                                                  n_remaining_coupons=20, remaining_first_period=1-57/184)
-    print(f"get_price_from_yield(3.875, calculated_yield,\n"
-          f"                     n_remaining_coupons=20, remaining_first_period=1-57/184): {calculated_dirty_price}")
+    calculated_converted_dirty_price = clean_to_dirty(true_clean_price, 3.875, '2018-05-15', '2008-07-11')
+    print(f"clean_to_dirty(true_clean_price, 3.875, '2018-05-15', '2008-07-11'):\n{calculated_converted_dirty_price}")
+    if np.isclose(true_dirty_price, calculated_converted_dirty_price):
+        print("PASS")
+    else:
+        print("****FAILED****")
+    calculated_converted_clean_price = clean_to_dirty(true_dirty_price, 3.875, '2018-05-15', '2008-07-11', reverse=True)
+    print(f"clean_to_dirty(true_dirty_price, 3.875, '2018-05-15', '2008-07-11', reverse=True):\n"
+          f"{calculated_converted_dirty_price}")
+    if np.isclose(true_clean_price, calculated_converted_clean_price):
+        print("PASS")
+    else:
+        print("****FAILED****")
+    calculated_dirty_price = get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,
+                                                  remaining_first_period=1-57/184, get_dirty=True)
+    print(f"get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,\n"
+          f"                     remaining_first_period=1-57/184, get_dirty=True):\n{calculated_dirty_price}")
     if np.isclose(true_dirty_price, calculated_dirty_price):
         print("PASS")
     else:
@@ -507,14 +537,14 @@ if __name__ == '__main__':
     print("\nExample 3: Duration\n")
     true_macaulay = 1.2215
     calculated_macaulay = get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True)
-    print(f"get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True): {calculated_macaulay}")
+    print(f"get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True):\n{calculated_macaulay}")
     if np.isclose(true_macaulay, calculated_macaulay):
         print("PASS")
     else:
         print("****FAILED****")
     true_modified = 0.4055
     calculated_modified = get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22')
-    print(f"get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'): {calculated_modified}")
+    print(f"get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'):\n{calculated_modified}")
     if np.isclose(true_modified, calculated_modified):
         print("PASS")
     else:
@@ -533,9 +563,8 @@ if __name__ == '__main__':
     calculated_implied_repo_rate = \
         get_implied_repo_rate(test_coupon, test_bond_price, test_maturity_datelike, test_settle_datelike,
                               test_futures_price, test_conver_factor, None, test_delivery_monthlike, test_tenor)
-    print(f"get_implied_repo_rate({test_coupon}, {test_bond_price}, {test_maturity_datelike}, {test_settle_datelike},\n"
-          f"                      {test_futures_price}, {test_conver_factor}, "
-          f"None, {test_delivery_monthlike}, {test_tenor}): "
+    print(f"get_implied_repo_rate({test_coupon}, {test_bond_price}, {test_maturity_datelike}, {test_settle_datelike}, "
+          f"{test_futures_price}, {test_conver_factor}, None, {test_delivery_monthlike}, {test_tenor}):\n"
           f"{calculated_implied_repo_rate}")
     if np.isclose(true_implied_repo_rate, round(calculated_implied_repo_rate, 3)):
         print("PASS")
@@ -565,7 +594,7 @@ if __name__ == '__main__':
         print("****FAILED****")
 
     print("\nExample 6: Conversion Factors\n")
-    print("The following are the 5 examples provided on the CME website for calculating\n"
+    print("The following are the 5 examples provided on the CME website for calculating "
           "Treasury futures conversion factors:")
     true_cfs = (0.922939, 0.874675, 0.865330, 0.835651, 0.794274)
     test_parameters = ((1.5, '2010-10-31', '2008-12', 2),
@@ -599,6 +628,7 @@ if __name__ == '__main__':
                     print("****FAILED****")
 
 """ Expected Output:
+
 Example 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)
 
 True Yield to Maturity: 2.594
@@ -608,35 +638,47 @@ Discounted Payment 3: 1.3829870158173336
 Discounted Payment 4: 96.34123362044427
 Calculated Dirty Price: 100.5442393400022
 Calculated Clean Price: 100.5442393400022
-get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True): 100.5442393400022
-get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'): 2.5940000000000043
+get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True):
+100.5442393400022
+get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'):
+2.5940000000000043
 PASS
 
 Example 2: 20 Non-Whole Coupon Periods
 
 True Clean Price: 99.4375
-get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_clean_price=True): 3.9439989648691136
-get_price_from_yield(3.875, calculated_yield,
-                     n_remaining_coupons=20, remaining_first_period=1-57/184,
-                     get_clean=True): 99.43749999999979
+get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_dirty_price=False):
+3.9439989648691136
+get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,
+                     remaining_first_period=1-57/184, get_dirty=False):
+99.43749999999979
 PASS
 On settlement date, we are 57 days into the 184 days of coupon period
 True Dirty Price: true_clean_price + 57/184 * 3.875/2 = 100.03770380434783
-get_price_from_yield(3.875, calculated_yield,
-                     n_remaining_coupons=20, remaining_first_period=1-57/184): 100.03770380434761
+clean_to_dirty(true_clean_price, 3.875, '2018-05-15', '2008-07-11'):
+100.03770380434783
+PASS
+clean_to_dirty(true_dirty_price, 3.875, '2018-05-15', '2008-07-11', reverse=True):
+100.03770380434783
+PASS
+get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,
+                     remaining_first_period=1-57/184, get_dirty=True):
+100.03770380434761
 PASS
 
 Example 3: Duration
 
-get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True): 1.2215000001576344
+get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True):
+1.2215000001576344
 PASS
-get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'): 0.40550000045334145
+get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'):
+0.40550000045334145
 PASS
 
 Example 4: Implied Repo Rate
 
-get_implied_repo_rate(2.25, 103.7109375, 2/15/27, 1/22/20,
-                      129.5, 0.7943, 03/31/20): -2.128949495660515
+get_implied_repo_rate(2.25, 103.7109375, 2/15/27, 1/22/20, 129.5, 0.7943, None, 03/01/20, 10):
+-2.128949495660515
 PASS
 
 Example 5: Whole Year, Month, Day Difference
@@ -650,8 +692,7 @@ PASS
 
 Example 6: Conversion Factors
 
-The following are the 5 examples provided on the CME website for calculating
-Treasury futures conversion factors:
+The following are the 5 examples provided on the CME website for calculating Treasury futures conversion factors:
 2-year:
     2008-12 futures delivering 1.5s of 2010-10-31:
     0.9229387996542004
@@ -675,40 +716,40 @@ PASS
 
 Example 7: Delivery Baskets
 
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: TUH0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: TUM0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: TUU0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: FVH0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: FVM0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: FVU0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: TYH0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: TYM0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: TYU0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: USH0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: USM0
 PASS
-2020-02-03_notesbonds_universe_history.csv read.
+2020-02-05_notesbonds_universe_history.csv read.
 Test: USU0
 PASS
 """
