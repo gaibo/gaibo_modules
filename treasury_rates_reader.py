@@ -10,17 +10,12 @@ MATURITY_NAME_TO_DAYS_DICT = {'1 Mo': 30, '2 Mo': 61, '3 Mo': 91, '6 Mo': 182,
 RATE_TO_PERCENT = 100
 
 
-def load_treasury_rates(file_dir=None, file_name=None):
+def load_treasury_rates(file_dir=RATES_CSV_FILEDIR, file_name=RATES_CSV_FILENAME):
     """ Read CMT Treasury yield rates from disk and load them into a DataFrame
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
     :return: pd.DataFrame with Treasury rates
     """
-    # Use default directory and file name
-    if file_dir is None:
-        file_dir = RATES_CSV_FILEDIR
-    if file_name is None:
-        file_name = RATES_CSV_FILENAME
     # Load designated CSV containing rates
     try:
         return pd.read_csv(file_dir + file_name, index_col='Date', parse_dates=True)
@@ -141,13 +136,15 @@ INTERPOLATION_FUNCTION_DISPATCH = {'natural cubic spline': natural_cubic_spline_
                                    'linear': linear_interpolation}
 
 
-def get_rate(loaded_rates, date, time_to_maturity, time_in_years=False,
-             interp_method='natural cubic spline', return_rate_type='BEY'):
-    """ Get a forward-filled and interpolated risk-free rate from DataFrame
+def get_rate(date, time_to_maturity, loaded_rates=None, time_in_years=False,
+             interp_method='natural cubic spline', return_rate_type='log(semiannual)'):
+    """ Get a forward-filled and interpolated risk-free rate
+        NOTE: if this function is to be used multiple times, please provide optional parameter loaded_rates
+              with the source DataFrame loaded through load_treasury_rates for speed/efficiency purposes
         NOTE: no vectorized input and output implemented
-    :param loaded_rates: DataFrame loaded through load_treasury_rates
     :param date: date on which to obtain rate (can be string or object)
     :param time_to_maturity: number of days to maturity at which rate is interpolated
+    :param loaded_rates: DataFrame pre-loaded through load_treasury_rates
     :param time_in_years: set True if time_to_maturity is in years instead of days
     :param interp_method: method of rates interpolation (e.g. 'natural cubic spline', 'linear')
     :param return_rate_type: type of rate to return; see RATE_TYPE_FUNCTION_DISPATCH for documentation
@@ -159,6 +156,8 @@ def get_rate(loaded_rates, date, time_to_maturity, time_in_years=False,
         time_to_maturity *= 365     # Convert to days
     # Get date's available rates by
     # 1) forward-filling if date not available and 2) dropping maturities that are not available
+    if loaded_rates is None:
+        loaded_rates = load_treasury_rates()
     day_rates = loaded_rates.loc[:date].fillna(method='ffill').iloc[-1].dropna()
     day_rates_days = [MATURITY_NAME_TO_DAYS_DICT[name] for name in day_rates.index]
     day_rates_rates = day_rates.values

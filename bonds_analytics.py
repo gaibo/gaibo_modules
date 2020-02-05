@@ -7,7 +7,7 @@ from options_futures_expirations_v3 import BUSDAY_OFFSET
 
 DAY_OFFSET = pd.DateOffset(days=1)
 ONE_YEAR = pd.Timedelta(days=365)
-TREASURYDIRECT_UNIVERSE_DIR = 'P:/ProductDevelopment/Database/Production/Treasury_VIX/Files/'
+NOTESBONDS_UNIVERSE_HISTORY_FILEDIR = 'P:/ProductDevelopment/Database/Production/Treasury_VIX/Files/'
 
 
 def is_end_of_month(datelike):
@@ -420,28 +420,40 @@ def _get_cme_yearmonth_differences(earlier_dates, later_dates, tenor):
     return ymd_df['CME_difference']
 
 
-def get_delivery_basket(delivery_monthlike, tenor, as_of_datelike=None):
-    """ Return delivery basket for given futures month and tenor
-        NOTE: automatically looks up latest locally available notes/bonds universe file
-    :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's 2020-03
-    :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
-    :param as_of_datelike: historical date on which to deduce delivery basket; set None for present day
-    :return: pd.DataFrame of deliverable notes/bonds
+def load_notesbonds_universe_history(file_dir=NOTESBONDS_UNIVERSE_HISTORY_FILEDIR):
+    """ Read Treasury Direct notes/bonds universe from disk and load it into a DataFrame
+    :param file_dir: optional directory to search for data file (overrides default directory)
+    :return: pd.DataFrame with relevant fields
     """
-    # Load the latest notes/bonds universe, pulled to local from Treasury Direct
-    latest_universe_file = sorted([f for f in listdir(TREASURYDIRECT_UNIVERSE_DIR)
+    latest_universe_file = sorted([f for f in listdir(file_dir)
                                    if f.endswith('_notesbonds_universe_history.csv')])[-1]
     fields = ['cusip', 'interestRate', 'maturityDate', 'issueDate',
               'securityType', 'securityTerm', 'callDate', 'interestPaymentFrequency']
-    universe = pd.read_csv(f'{TREASURYDIRECT_UNIVERSE_DIR}{latest_universe_file}',
+    universe = pd.read_csv(f'{file_dir}{latest_universe_file}',
                            usecols=fields, parse_dates=['maturityDate', 'issueDate', 'callDate'])
     print(latest_universe_file + " read.")
+    return universe
+
+
+def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None, as_of_datelike=None):
+    """ Return delivery basket for given futures month and tenor
+        NOTE: automatically looks up latest locally available notes/bonds universe file
+        NOTE: if this function is to be used multiple times, please provide optional parameter loaded_universe_history
+              with the source DataFrame loaded through load_notesbonds_universe_history for speed/efficiency purposes
+    :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's 2020-03
+    :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
+    :param loaded_universe_history: DataFrame loaded through load_notesbonds_universe_history
+    :param as_of_datelike: historical date on which to deduce delivery basket; set None for present day
+    :return: pd.DataFrame of deliverable notes/bonds
+    """
     # View subset of universe history that was available on the as-of date, only latest re-issue
     if as_of_datelike is not None:
         as_of_date = datelike_to_timestamp(as_of_datelike)
     else:
         as_of_date = pd.Timestamp('now')
-    available_universe = (universe[universe['issueDate'] <= as_of_date]
+    if loaded_universe_history is None:
+        loaded_universe_history = load_notesbonds_universe_history()
+    available_universe = (loaded_universe_history[loaded_universe_history['issueDate'] <= as_of_date]
                           .drop_duplicates('cusip', keep='first').set_index('cusip'))
     # Throw out non-semiannual notes/bonds since Treasury futures do not deliver them
     no_semiannual = available_universe[available_universe['interestPaymentFrequency'] == 'Semi-Annual'].copy()
@@ -615,12 +627,13 @@ if __name__ == '__main__':
     print("\nExample 7: Delivery Baskets\n")
     delivery_baskets_df = pd.read_csv('P:/PrdDevSharedDB/CME Data/TYVIX Basis Point Vol Documentation/Deliverables/'
                                       'delivery_baskets_2020HMU_2020-01-09.csv')
+    test_universe_history = load_notesbonds_universe_history()
     for test_tenor in [('TU', 2), ('FV', 5), ('TY', 10), ('US', 30)]:
         for test_month in [('H', '03'), ('M', '06'), ('U', '09')]:
             for test_year in [('0', '2020')]:
                 true_basket = set(delivery_baskets_df[test_tenor[0]+test_month[0]+test_year[0]].dropna())
-                calculated_basket = set(get_delivery_basket(test_year[1]+'-'+test_month[1],
-                                                            test_tenor[1], '2020-01-09').index)
+                calculated_basket = set(get_delivery_basket(test_year[1]+'-'+test_month[1], test_tenor[1],
+                                                            test_universe_history, '2020-01-09').index)
                 print(f'Test: {test_tenor[0]+test_month[0]+test_year[0]}')
                 if calculated_basket == true_basket:
                     print("PASS")
@@ -719,37 +732,26 @@ Example 7: Delivery Baskets
 2020-02-05_notesbonds_universe_history.csv read.
 Test: TUH0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: TUM0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: TUU0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: FVH0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: FVM0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: FVU0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: TYH0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: TYM0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: TYU0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: USH0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: USM0
 PASS
-2020-02-05_notesbonds_universe_history.csv read.
 Test: USU0
 PASS
 """
