@@ -48,6 +48,7 @@ def pull_treasury_rates(file_dir=RATES_FILEDIR, file_name=YIELDS_CSV_FILENAME):
         yields = [_parse_raw(raw) for raw in raw_values[2:-1]]
         yields_dict[date] = yields
     yields_df = pd.DataFrame(yields_dict, index=YIELDS_FIELDS).T.sort_index()
+    yields_df.index.name = 'Date'
     yields_df.to_csv(file_dir + file_name)
     return yields_df
 
