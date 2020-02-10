@@ -103,6 +103,29 @@ def apy_to_bey(apy_rate):
     return bey_rate if bey_rate >= 0 else 0
 
 
+def identity(something):
+    """ Identity function purely for decluttering RATE_TYPE_FUNCTION_DISPATCH """
+    return something
+
+
+def apy_to_return(apy_rate, time_to_maturity):
+    """ Convert net one-year return (APY) to percent return for given time
+    :param apy_rate: annualized percentage yield, in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+    :param time_to_maturity: desired days to maturity
+    :return: return for the given time, also in percent
+    """
+    t = time_to_maturity/365
+    return ((1 + apy_rate/RATE_TO_PERCENT)**t - 1) * RATE_TO_PERCENT
+
+
+def one_plus_rate(rate):
+    """ Convert a rate in percent to a 1+rate format
+    :param rate: rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+    :return: rate in 1+rate format (e.g. 1.0243 is 2.43%; 1.0017 is 0.17%)
+    """
+    return 1 + rate/RATE_TO_PERCENT
+
+
 # NOTE: - CMT Treasury yields are bond equivalent yields (BEYs)
 #       - BEYs cannot be used directly - they must always be used in context of (1 + BEY/2)^2 being an APY
 #       - APYs must be used in context of (1 + APY)^t, t being time in years:
@@ -112,21 +135,22 @@ def apy_to_bey(apy_rate):
 #         so we can also calculate an r = log(1 + APY) via a repurposing of the apy_to_continuous function
 #       - the rates used for VIX currently do not account for treasury.gov CMT yields being BEY;
 #         thus, to replicate VIX rates, we act as if APY = BEY and directly apply the apy_to_continuous function
-RATE_TYPE_FUNCTION_DISPATCH = {'bey': lambda rate: rate,
-                               'BEY': lambda rate: rate,
-                               'treasury': lambda rate: rate,
-                               'Treasury': lambda rate: rate,
-                               'yield': lambda rate: rate,
+#       - the zero rates can be used directly as a multiplier, since they already account for days to maturity:
+#         e.g. (1+rate_t)*zero_price_t = 100, zero_price_t being price of a zero-coupon bond with t years to maturity
+RATE_TYPE_FUNCTION_DISPATCH = {'bey': identity,
+                               'BEY': identity,
+                               'treasury': identity,
+                               'Treasury': identity,
+                               'yield': identity,
                                'APY': bey_to_apy,
-                               '1+APY': lambda rate: (1 + bey_to_apy(rate)/RATE_TO_PERCENT) * RATE_TO_PERCENT,
-                               'rate_t': lambda rate, t:
-                                   ((1 + bey_to_apy(rate)/RATE_TO_PERCENT)**t - 1) * RATE_TO_PERCENT,
-                               'zero': lambda rate, t:
-                                   ((1 + bey_to_apy(rate)/RATE_TO_PERCENT)**t - 1) * RATE_TO_PERCENT,
-                               '1+rate_t': lambda rate, t: (1 + bey_to_apy(rate)/RATE_TO_PERCENT)**t * RATE_TO_PERCENT,
+                               '1+APY': lambda rate: one_plus_rate(bey_to_apy(rate)),
                                'log(1+APY)': lambda rate: apy_to_continuous(bey_to_apy(rate)),
                                'vix': apy_to_continuous,
-                               'VIX': apy_to_continuous}
+                               'VIX': apy_to_continuous,
+                               'rate_t': lambda rate, days: apy_to_return(bey_to_apy(rate), days),
+                               'zero': lambda rate, days: apy_to_return(bey_to_apy(rate), days),
+                               '1+rate_t': lambda rate, days: one_plus_rate(apy_to_return(bey_to_apy(rate), days)),
+                               '1+zero': lambda rate, days: one_plus_rate(apy_to_return(bey_to_apy(rate), days))}
 
 
 def natural_cubic_spline_interpolation(rates_time_to_maturity, rates_rates, time_to_maturity):
@@ -178,7 +202,7 @@ INTERPOLATION_FUNCTION_DISPATCH = {'natural cubic spline': natural_cubic_spline_
 
 def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
              interp_method='natural cubic spline', return_rate_type='log(1+APY)'):
-    """ Get a forward-filled and interpolated rate (BEY, APY, zero, etc.)
+    """ Get a forward-filled and interpolated rate (BEY, APY, zero, 1+APY, etc.)
         NOTE: if this function is to be used multiple times, please provide optional parameter loaded_rates
               with the source DataFrame loaded through load_treasury_rates for speed/efficiency purposes
         NOTE: 1 Mo started 2001-07-31; 2 Mo started 2018-10-16;
@@ -191,7 +215,8 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
     :param time_in_years: set True if time_to_maturity is in years instead of days
     :param interp_method: method of rates interpolation (e.g. 'natural cubic spline', 'linear')
     :param return_rate_type: type of rate to return; see RATE_TYPE_FUNCTION_DISPATCH for documentation
-    :return: numerical rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%)
+    :return: numerical rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%), 1+rate format (e.g. 1.0243 is 2.43%;
+             1.0017 is 0.17%), or other based on return_rate_type
     """
     date = datelike_to_timestamp(datelike)
     if time_in_years:
@@ -215,8 +240,8 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
     treasury_rate = interp_func(day_rates_days, day_rates_rates, time_to_maturity)
     # Convert interpolated Treasury rate into desired format
     convert_func = RATE_TYPE_FUNCTION_DISPATCH[return_rate_type]
-    if return_rate_type in ['rate_t', 'zero', '1+rate_t']:
-        return convert_func(treasury_rate, time_to_maturity/365)
+    if return_rate_type in ['rate_t', 'zero', '1+rate_t', '1+zero']:
+        return convert_func(treasury_rate, time_to_maturity)
     else:
         return convert_func(treasury_rate)
 
@@ -232,7 +257,7 @@ if __name__ == '__main__':
     test_r = get_rate('2019-12-07', 61, disk_rates)
     if not np.isclose(np.exp(test_r/100 * 61/365), 1 + test_zero/100):
         print("****FAILED 1****")
-    if not np.isclose((1 + test_zero/100) * 100, test_1_plus_rate_t):
+    if not np.isclose(1 + test_zero/100, test_1_plus_rate_t):
         print("****FAILED 2****")
     if not np.isclose((1 + test_bey/100/2)**2, 1 + test_apy/100):
         print("****FAILED 3****")
