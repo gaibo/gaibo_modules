@@ -266,6 +266,22 @@ def get_duration(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
         return modified_duration
 
 
+def get_last_delivery_date(delivery_monthlike, tenor):
+    """ Derive futures last delivery date from contract's named maturity month and tenor
+    :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's 2020-03
+    :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
+    :return: pd.Timestamp
+    """
+    delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
+    if tenor in [10, 30]:
+        # Last trading day of month
+        last_delivery_date = delivery_month + pd.DateOffset(months=1) - BUSDAY_OFFSET
+    else:
+        # 3rd trading day of next month
+        last_delivery_date = delivery_month + pd.DateOffset(months=1) - DAY_OFFSET + 3*BUSDAY_OFFSET
+    return last_delivery_date
+
+
 def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike,
                           futures_price, conver_factor, delivery_datelike, delivery_monthlike=None, tenor=None):
     """ Calculate implied repo rate from bond and futures specs
@@ -284,14 +300,8 @@ def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike
     maturity_date = datelike_to_timestamp(maturity_datelike)
     settle_date = datelike_to_timestamp(settle_datelike)
     if delivery_datelike is None:
-        # Derive delivery date from month and tenor
-        delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
-        if tenor in [10, 30]:
-            # Last trading day of month
-            delivery_date = delivery_month + pd.DateOffset(months=1) - BUSDAY_OFFSET
-        else:
-            # 3rd trading day of next month
-            delivery_date = delivery_month + pd.DateOffset(months=1) - DAY_OFFSET + 3*BUSDAY_OFFSET
+        # Derive from maturity month and tenor
+        delivery_date = get_last_delivery_date(delivery_monthlike, tenor)
     else:
         delivery_date = datelike_to_timestamp(delivery_datelike)
     # Find coupon dates and related accruals
@@ -333,6 +343,12 @@ def get_whole_year_month_day_difference(datelike_1, datelike_2):
     date_2 = datelike_to_timestamp(datelike_2)
     if pd.isna(date_1) or pd.isna(date_2):
         return np.NaN, np.NaN, np.NaN   # Necessary because pd.DateOffset does not accept np.NaN months
+    # Set flag if dates are reversed in order
+    if date_2 < date_1:
+        earlier_later_reversed = True
+        date_1, date_2 = date_2, date_1     # Make date_1 before date_2 for uniform calculation
+    else:
+        earlier_later_reversed = False
     date_1_in_date_2_year = change_year(date_1, date_2.year)    # Solve issues with Feb 28/29 being the same day
     # Set flag if both dates are end of month so they are specifically treated as a whole number of months apart
     if is_end_of_month(date_1) and is_end_of_month(date_2):
@@ -374,7 +390,11 @@ def get_whole_year_month_day_difference(datelike_1, datelike_2):
         whole_year_month_forward_date = (change_year(date_1, date_1.year+whole_years)
                                          + pd.DateOffset(months=whole_months))
         whole_days = (date_2 - whole_year_month_forward_date).days
-    return whole_years, whole_months, whole_days
+    # Account for date order reversal
+    if earlier_later_reversed:
+        return -whole_years, -whole_months, -whole_days
+    else:
+        return whole_years, whole_months, whole_days
 
 
 def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor):
@@ -401,11 +421,12 @@ def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor):
     return factor
 
 
-def _get_cme_yearmonth_differences(earlier_dates, later_dates, tenor):
+def _get_cme_yearmonth_differences(earlier_dates, later_dates, tenor, return_full_df=False):
     """ Helper: Calculate CME-style year-month differences between two arrays of Timestamps
     :param earlier_dates: array of earlier Timestamps
     :param later_dates: array of later Timestamps
     :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
+    :param return_full_df: set True to return full DataFrame with exact year, month, day
     :return: pd.Series of years plus whole month fractions, e.g. 15, 10.25, 11.1666
     """
     combined_df = pd.DataFrame({'earlier': earlier_dates, 'later': later_dates})
@@ -413,11 +434,14 @@ def _get_cme_yearmonth_differences(earlier_dates, later_dates, tenor):
         combined_df.apply(lambda row: get_whole_year_month_day_difference(row['earlier'], row['later']), axis=1)
     ymd_df = pd.DataFrame(ymd_tuples.tolist(), index=ymd_tuples.index, columns=['years', 'months', 'days'])
     if tenor in [10, 30]:
-        ymd_df['months_modified'] = ymd_df['months']//3*3
+        ymd_df['months_rounded'] = ymd_df['months']//3*3
     else:
-        ymd_df['months_modified'] = ymd_df['months']
-    ymd_df['CME_difference'] = ymd_df['years'] + ymd_df['months_modified']/12
-    return ymd_df['CME_difference']
+        ymd_df['months_rounded'] = ymd_df['months']
+    ymd_df['CME_difference'] = ymd_df['years'] + ymd_df['months_rounded']/12
+    if return_full_df:
+        return ymd_df
+    else:
+        return ymd_df['CME_difference']
 
 
 def load_notesbonds_universe_history(file_dir=NOTESBONDS_UNIVERSE_HISTORY_FILEDIR):
@@ -427,15 +451,15 @@ def load_notesbonds_universe_history(file_dir=NOTESBONDS_UNIVERSE_HISTORY_FILEDI
     """
     latest_universe_file = sorted([f for f in listdir(file_dir)
                                    if f.endswith('_notesbonds_universe_history.csv')])[-1]
-    fields = ['cusip', 'interestRate', 'maturityDate', 'issueDate',
+    fields = ['cusip', 'interestRate', 'maturityDate', 'announcementDate', 'issueDate',
               'securityType', 'securityTerm', 'callDate', 'interestPaymentFrequency']
     universe = pd.read_csv(f'{file_dir}{latest_universe_file}',
-                           usecols=fields, parse_dates=['maturityDate', 'issueDate', 'callDate'])
+                           usecols=fields, parse_dates=['maturityDate', 'announcementDate', 'issueDate', 'callDate'])
     print(latest_universe_file + " read.")
     return universe
 
 
-def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None, as_of_datelike=None):
+def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None, as_of_datelike=None, verbose=False):
     """ Return delivery basket for given futures month and tenor
         NOTE: automatically looks up latest locally available notes/bonds universe file
         NOTE: if this function is to be used multiple times, please provide optional parameter loaded_universe_history
@@ -444,52 +468,65 @@ def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None,
     :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
     :param loaded_universe_history: DataFrame loaded through load_notesbonds_universe_history
     :param as_of_datelike: historical date on which to deduce delivery basket; set None for present day
+    :param verbose: set True to return year, month, day difference information in output DataFrame
     :return: pd.DataFrame of deliverable notes/bonds
     """
-    # View subset of universe history that was available on the as-of date, only latest re-issue
+    # View latest reopenings of universe history ready in delivery month and announced by as-of date
     if as_of_datelike is not None:
         as_of_date = datelike_to_timestamp(as_of_datelike)
     else:
         as_of_date = pd.Timestamp('now')
     if loaded_universe_history is None:
         loaded_universe_history = load_notesbonds_universe_history()
-    available_universe = (loaded_universe_history[loaded_universe_history['issueDate'] <= as_of_date]
+    delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
+    last_delivery_date = get_last_delivery_date(delivery_month, tenor)
+    available_universe = (loaded_universe_history[(loaded_universe_history['maturityDate'] >= delivery_month)
+                                                  & (loaded_universe_history['issueDate'] <= last_delivery_date)
+                                                  & (loaded_universe_history['announcementDate'] <= as_of_date)]
                           .drop_duplicates('cusip', keep='first').set_index('cusip'))
     # Throw out non-semiannual notes/bonds since Treasury futures do not deliver them
-    no_semiannual = available_universe[available_universe['interestPaymentFrequency'] == 'Semi-Annual'].copy()
+    semiannuals = available_universe[available_universe['interestPaymentFrequency'] == 'Semi-Annual'].copy()
     # Calculate 1) "original term to maturity (from latest note/bond re-issue)"
     #           2) "remaining term to maturity (from futures delivery month)" ("to first call" if callable)
-    no_semiannual['originalTermToMaturity'] = \
-        _get_cme_yearmonth_differences(no_semiannual['issueDate'], no_semiannual['maturityDate'], tenor)
-    delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
-    delivery_month_series = pd.Series(delivery_month, index=no_semiannual.index)
-    no_semiannual['remainingTermToFirstCall'] = \
-        _get_cme_yearmonth_differences(delivery_month_series, no_semiannual['callDate'], tenor)
-    no_semiannual['remainingTermToMaturity'] = \
-        _get_cme_yearmonth_differences(delivery_month_series, no_semiannual['maturityDate'], tenor)
-    no_semiannual.loc[no_semiannual['callDate'].notna(), 'remainingTermToMaturity'] = \
-        no_semiannual.loc[no_semiannual['callDate'].notna(), 'remainingTermToFirstCall']
+    otm_df = _get_cme_yearmonth_differences(semiannuals['issueDate'], semiannuals['maturityDate'],
+                                            tenor, return_full_df=True)
+    otm_fields = ['OTMYears', 'OTMMonths', 'OTMDays', 'OTMMonthsRounded', 'originalTermToMaturity']
+    semiannuals[otm_fields] = otm_df
+    delivery_month_series = pd.Series(delivery_month, index=semiannuals.index)
+    rtm_df = _get_cme_yearmonth_differences(delivery_month_series, semiannuals['maturityDate'],
+                                            tenor, return_full_df=True)
+    rtfc_df = _get_cme_yearmonth_differences(delivery_month_series, semiannuals['callDate'],
+                                             tenor, return_full_df=True)
+    callable_index = semiannuals['callDate'].notna()
+    rtm_df.loc[callable_index] = rtfc_df.loc[callable_index]
+    rtm_fields = ['RTMYears', 'RTMMonths', 'RTMDays', 'RTMMonthsRounded', 'remainingTermToMaturity']
+    semiannuals[rtm_fields] = rtm_df
+    semiannuals = semiannuals.sort_values(['remainingTermToMaturity', 'RTMDays'])  # Sort by time to maturity
+    if verbose:
+        semiannuals = semiannuals.drop(['interestPaymentFrequency', 'callDate'], axis=1)
+    else:
+        semiannuals = semiannuals.drop(otm_fields[:4]+rtm_fields[:4]+['interestPaymentFrequency', 'callDate'], axis=1)
     # Use the two fields to determine subset that is deliverable for tenor
     if tenor == 2:
-        basket = no_semiannual[(no_semiannual['originalTermToMaturity'] <= (5+3/12))
-                               & (no_semiannual['remainingTermToMaturity'] >= (1+9/12))
-                               & (no_semiannual['remainingTermToMaturity'] <= 2)].copy()
+        basket = semiannuals[(semiannuals['originalTermToMaturity'] <= (5+3/12))
+                             & (semiannuals['remainingTermToMaturity'] >= (1+9/12))
+                             & (semiannuals['remainingTermToMaturity'] <= 2)].copy()
     elif tenor == 5:
-        basket = no_semiannual[(no_semiannual['originalTermToMaturity'] <= (5+3/12))
-                               & (no_semiannual['remainingTermToMaturity'] >= (4+2/12))].copy()
+        basket = semiannuals[(semiannuals['originalTermToMaturity'] <= (5+3/12))
+                             & (semiannuals['remainingTermToMaturity'] >= (4+2/12))].copy()
     elif tenor == 10:
-        basket = no_semiannual[(no_semiannual['originalTermToMaturity'] <= 10)
-                               & (no_semiannual['remainingTermToMaturity'] >= (6+6/12))].copy()
+        basket = semiannuals[(semiannuals['originalTermToMaturity'] <= 10)
+                             & (semiannuals['remainingTermToMaturity'] >= (6+6/12))].copy()
     elif tenor == 30:
-        basket = no_semiannual[(no_semiannual['remainingTermToMaturity'] >= 15)
-                               & (no_semiannual['remainingTermToMaturity'] < 25)].copy()
+        basket = semiannuals[(semiannuals['remainingTermToMaturity'] >= 15)
+                             & (semiannuals['remainingTermToMaturity'] < 25)].copy()
     else:
         raise ValueError(f"Tenor of '{tenor}' is currently unsupported.")
     # Calculate futures conversion factor to help with eventually calculating implied repo rate/cheapest-to-deliver
     basket['conversionFactor'] = \
         basket.apply(lambda row:
                      get_conversion_factor(row['interestRate'], row['maturityDate'], delivery_month, tenor), axis=1)
-    return basket.drop(['callDate', 'interestPaymentFrequency', 'remainingTermToFirstCall'], axis=1)
+    return basket
 
 
 ###############################################################################
