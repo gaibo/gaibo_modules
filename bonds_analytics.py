@@ -501,7 +501,7 @@ def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None,
     rtm_df.loc[callable_index] = rtfc_df.loc[callable_index]
     rtm_fields = ['RTMYears', 'RTMMonths', 'RTMDays', 'RTMMonthsRounded', 'remainingTermToMaturity']
     semiannuals[rtm_fields] = rtm_df
-    semiannuals = semiannuals.sort_values(['remainingTermToMaturity', 'RTMDays'])  # Sort by time to maturity
+    semiannuals = semiannuals.sort_values(['RTMYears', 'RTMMonths', 'RTMDays'])  # Sort by time to maturity
     if verbose:
         semiannuals = semiannuals.drop(['interestPaymentFrequency', 'callDate'], axis=1)
     else:
