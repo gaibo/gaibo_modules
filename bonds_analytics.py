@@ -451,10 +451,11 @@ def load_notesbonds_universe_history(file_dir=NOTESBONDS_UNIVERSE_HISTORY_FILEDI
     """
     latest_universe_file = sorted([f for f in listdir(file_dir)
                                    if f.endswith('_notesbonds_universe_history.csv')])[-1]
-    fields = ['cusip', 'interestRate', 'maturityDate', 'announcementDate', 'issueDate',
+    fields = ['cusip', 'interestRate', 'maturityDate', 'announcementDate', 'auctionDate', 'issueDate',
               'securityType', 'securityTerm', 'callDate', 'interestPaymentFrequency']
     universe = pd.read_csv(f'{file_dir}{latest_universe_file}',
-                           usecols=fields, parse_dates=['maturityDate', 'announcementDate', 'issueDate', 'callDate'])
+                           usecols=fields, parse_dates=['maturityDate', 'announcementDate', 'auctionDate',
+                                                        'issueDate', 'callDate'])
     print(latest_universe_file + " read.")
     return universe
 
