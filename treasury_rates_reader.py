@@ -207,7 +207,7 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
               with the source DataFrame loaded through load_treasury_rates for speed/efficiency purposes
         NOTE: 1 Mo started 2001-07-31; 2 Mo started 2018-10-16;
               20 Yr discontinued 1987-01-01 through 1993-09-30; 30 Yr discontinued 2002-02-19 through 2006-02-08
-        NOTE: maximum forward-fill is restricted to 1 day, as that covers regular holidays
+        NOTE: maximum forward-fill is restricted to 2 days, as that covers regular holidays and 9/11
         NOTE: no vectorized input and output implemented
     :param datelike: date on which to obtain rate (can be string or object)
     :param time_to_maturity: number of days to maturity at which rate is interpolated
@@ -232,7 +232,7 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
     else:
         if date > loaded_rates.index[-1]:
             raise ValueError(f"{datelike} rate not available in given loaded_rates.")
-    day_rates = loaded_rates.loc[:date].fillna(method='ffill', limit=1).iloc[-1].dropna()
+    day_rates = loaded_rates.loc[:date].fillna(method='ffill', limit=2).iloc[-1].dropna()
     day_rates_days = [MATURITY_NAME_TO_DAYS_DICT[name] for name in day_rates.index]
     day_rates_rates = day_rates.values
     # Interpolate CMT Treasury rates
