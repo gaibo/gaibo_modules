@@ -87,6 +87,17 @@ def datelike_to_timestamp(datelike):
         return datelike
 
 
+def timelike_to_timedelta(timelike):
+    """ Utility: Convert time-like representations to pd.Timedelta, for consistency
+    :param timelike: time-like representation, e.g. '16:15:43', datetime object, etc.
+    :return: pd.Timedelta version of time
+    """
+    if not isinstance(timelike, pd.Timedelta):
+        return pd.to_datetime(str(timelike))
+    else:
+        return timelike
+
+
 def _get_holidays_start_end(cal, start_datelike, end_datelike=None, fancy=False):
     """ Helper: Return list of holidays given start and (optionally) end date
     :param cal: calendar object that has holidays() method
