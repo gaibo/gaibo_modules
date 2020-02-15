@@ -20,6 +20,6 @@ The modules:
 
 * *timer_tools* - tools for timing your code
 
-* *treasury_futures_reader* - a whole module dedicated to pulling Bloomberg Treasury futures data and reading it
+* *treasury_futures_reader* - a whole module dedicated to pulling Bloomberg Treasury futures data and reading it; NOTE: has dependency on pdblp (pandas-friendly Bloomberg API)
 
-* *treasury_rates_reader* - *get_rate* is the function that will get you any Treasury yield curve-based rate you can think of; NOTE: this module has a dependency on Anshul's *metaballon* package, so please get access to that either through cloning his repository or adding his package into PYTHONPATH
+* *treasury_rates_reader* - *get_rate* is the function that will get you any Treasury yield curve-based rate you can think of; NOTE: has dependency on Anshul's *metaballon* package, so please get access to that either through cloning his repository or adding his package into PYTHONPATH
