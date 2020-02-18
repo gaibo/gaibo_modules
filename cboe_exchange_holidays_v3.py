@@ -93,9 +93,17 @@ def timelike_to_timedelta(timelike):
     :return: pd.Timedelta version of time
     """
     if not isinstance(timelike, pd.Timedelta):
-        return pd.to_datetime(str(timelike))
+        return pd.Timedelta(str(timelike))
     else:
         return timelike
+
+
+def strip_to_date(timestamp):
+    """ Utility: Strip Timestamp to date only
+    :param timestamp: pd.Timestamp to strip
+    :return: pd.Timestamp version of date with no spare hours, minutes, seconds, or fractions of second
+    """
+    return timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _get_holidays_start_end(cal, start_datelike, end_datelike=None, fancy=False):
