@@ -237,7 +237,7 @@ def prev_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
 
 
 def next_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
-    """ Find designated CBOT Treasury futures maturity date, 7th business day preceding
+    """ Find designated CBOT Treasury futures maturity date, 0th or 7th business day preceding
         the last business day of the quarterly month
         NOTE: if input date is the maturity date, it will be returned as the "next"
               maturity, since maturation would technically happen at the end of that day
@@ -283,7 +283,7 @@ def next_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
 
 
 def prev_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
-    """ Find designated CBOT Treasury futures maturity date, 7th business day preceding
+    """ Find designated CBOT Treasury futures maturity date, 0th or 7th business day preceding
         the last business day of the quarterly month
         NOTE: if input date is the maturity date, it will NOT be returned as the "previous"
               maturity, since maturation would technically happen at the end of that day
