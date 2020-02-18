@@ -36,12 +36,13 @@ def undl_fut_quarter_month(opt_contr_month):
     return (((opt_contr_month-1) // 3) + 1) * 3     # month_to_quarter_shifter(opt_contr_month, shift=-1)
 
 
-def fut_ticker(tenor, expiry_monthlike, expiry_type='options', use_single_digit_year=False):
+def fut_ticker(tenor, expiry_monthlike, expiry_type='options', use_single_digit_year=False, no_comdty=False):
     """ Derive Bloomberg Treasury futures ticker from expiry of options or futures
     :param tenor: 2, 5, 10, 30, etc. (-year Treasury futures)
     :param expiry_monthlike: date-like representation of expiration month (precision only needed to month)
     :param expiry_type: specify whether the expiry is 'options' or 'futures'
     :param use_single_digit_year: set True to return single-digit year, used when querying for current year
+    :param no_comdty: set True to omit the Bloomberg-specific ' Comdty' from the ticker
     :return: string Bloomberg ticker; e.g. 'TYM18 Comdty' for 10-year June futures in 2018
     """
     tenor_code = TENOR_TO_CODE_DICT[tenor]
@@ -60,7 +61,9 @@ def fut_ticker(tenor, expiry_monthlike, expiry_type='options', use_single_digit_
         year_code = f'{contract_year%10}'   # One digit only, useful for current year queries
     else:
         year_code = f'{contract_year%100:02d}'  # Two digits, useful for past years
-    ticker = tenor_code + quarter_code + year_code + ' Comdty'
+    ticker = tenor_code + quarter_code + year_code
+    if not no_comdty:
+        ticker += ' Comdty'
     return ticker
 
 
