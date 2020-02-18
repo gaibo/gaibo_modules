@@ -35,6 +35,14 @@ def n_before_last_bus_day(datelike_in_month, n):
     return this_month_last_bd - n*BUSDAY_OFFSET
 
 
+def last_day_of_month(monthlike):
+    """ Return last date of the month
+    :param monthlike: date-like representation with precision to month
+    :return: pd.Timestamp
+    """
+    return next_month_first_day(monthlike) - pd.DateOffset(days=1)
+
+
 ###############################################################################
 # Simple next and previous iteration
 
@@ -120,6 +128,24 @@ def prev_quarterly_month(datelike, quarter_return_self=False):
     else:
         year_decrement = 0
     return date.replace(month=prev_quarter_month) - pd.DateOffset(years=year_decrement)
+
+
+def next_month_first_day(monthlike):
+    """ Return first date of next month
+    :param monthlike: date-like representation with precision to month
+    :return: pd.Timestamp
+    """
+    month = datelike_to_timestamp(monthlike)
+    return month.replace(day=1) + pd.DateOffset(months=1)
+
+
+def prev_month_first_day(monthlike):
+    """ Return first date of previous month
+    :param monthlike: date-like representation with precision to month
+    :return: pd.Timestamp
+    """
+    month = datelike_to_timestamp(monthlike)
+    return month.replace(day=1) - pd.DateOffset(months=1)
 
 
 ###############################################################################
