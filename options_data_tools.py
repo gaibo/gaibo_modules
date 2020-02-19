@@ -126,7 +126,7 @@ def add_forward(data, trade_date_col='trade_date', exp_date_col='exp_date', stri
 def lookup_val_in_col(data, lookup_val, lookup_col, exact_only=False, groupby_cols=None):
     """ Return row (of first occurrence, if multiple) of nearest value in selected column
         NOTE: operates per aggregation group if groupby_cols parameter is used
-    :param data: input DataFrame
+    :param data: unindexed input DataFrame containing all fields
     :param lookup_val: value to look for in column
     :param lookup_col: column to look in
     :param exact_only: set True if only exact value match is desired
@@ -140,16 +140,16 @@ def lookup_val_in_col(data, lookup_val, lookup_col, exact_only=False, groupby_co
         if groupby_cols is not None:
             return exact_matches.groupby(groupby_cols).first()
         else:
-            return exact_matches.iloc[0] if not exact_matches.empty else exact_matches
+            return exact_matches.iloc[0].copy() if not exact_matches.empty else exact_matches.copy()
     else:
         # Find index(es) of minimum difference between lookup column and lookup value
         col_val_abs_diff = (data[lookup_col] - lookup_val).abs()
         if groupby_cols is not None:
             # Aggregate by groupby_cols
-            data_noindex = data.reset_index()
-            data_noindex['col_val_abs_diff'] = col_val_abs_diff.values
-            nearest_val_idxs = data_noindex.groupby(groupby_cols)['col_val_abs_diff'].idxmin()
-            return data_noindex.drop('col_val_abs_diff', axis=1).loc[nearest_val_idxs].set_index(groupby_cols)
+            data_copy = data.copy()
+            data_copy['col_val_abs_diff'] = col_val_abs_diff
+            nearest_val_idxs = data_copy.groupby(groupby_cols)['col_val_abs_diff'].idxmin()
+            return data.loc[nearest_val_idxs].set_index(groupby_cols)
         else:
             # No need to aggregate
             nearest_val_idx = col_val_abs_diff.idxmin()
