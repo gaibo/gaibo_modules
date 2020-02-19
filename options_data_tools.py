@@ -121,3 +121,36 @@ def add_forward(data, trade_date_col='trade_date', exp_date_col='exp_date', stri
     forward_df = k + np.exp(r*t)*c_p
     data_indexed_orig_with_forward = data_indexed_orig.join(forward_df.rename(new_forward_col), how='inner')
     return data_indexed_orig_with_forward.reset_index()
+
+
+def lookup_val_in_col(data, lookup_val, lookup_col, exact_only=False, groupby_cols=None):
+    """ Return row (of first occurrence, if multiple) of nearest value in selected column
+        NOTE: operates per aggregation group if groupby_cols parameter is used
+    :param data: input DataFrame
+    :param lookup_val: value to look for in column
+    :param lookup_col: column to look in
+    :param exact_only: set True if only exact value match is desired
+    :param groupby_cols: use instead of df.groupby(groupby_cols).apply(lambda data: lookup_val_in_col(...))
+    :return: row (per aggregation, if applicable) containing column value that matches lookup value;
+             if multiple matches, only first occurrence; if exact_only and no exact match, empty
+    """
+    if exact_only:
+        # Simple process for exact matches
+        exact_matches = data[data[lookup_col] == lookup_val]
+        if groupby_cols is not None:
+            return exact_matches.groupby(groupby_cols).first()
+        else:
+            return exact_matches.iloc[0] if not exact_matches.empty else exact_matches
+    else:
+        # Find index(es) of minimum difference between lookup column and lookup value
+        col_val_abs_diff = (data[lookup_col] - lookup_val).abs()
+        if groupby_cols is not None:
+            # Aggregate by groupby_cols
+            data_noindex = data.reset_index()
+            data_noindex['col_val_abs_diff'] = col_val_abs_diff.values
+            nearest_val_idxs = data_noindex.groupby(groupby_cols)['col_val_abs_diff'].idxmin()
+            return data_noindex.drop('col_val_abs_diff', axis=1).loc[nearest_val_idxs].set_index(groupby_cols)
+        else:
+            # No need to aggregate
+            nearest_val_idx = col_val_abs_diff.idxmin()
+            return data.loc[nearest_val_idx].copy()
