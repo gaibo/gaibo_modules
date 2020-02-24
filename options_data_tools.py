@@ -179,5 +179,6 @@ def change_weekday(data, date_col, old_weekday, new_weekday, verbose=False):
         change_weekday_df = pd.DataFrame({'old_dates': date_col_data.loc[change_weekday_index],
                                           'new_dates': data_copy.loc[change_weekday_index, date_col]})
         print(change_weekday_df)
-        print(f"{len(change_weekday_index)} changes, {len(change_weekday_df['old_dates'].unique())} unique")
+    print(f"{len(change_weekday_index)} changes, "
+          f"{len(date_col_data.loc[change_weekday_index].unique())} unique")
     return data_copy
