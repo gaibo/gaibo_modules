@@ -103,7 +103,7 @@ def strip_to_date(timestamp):
     :param timestamp: pd.Timestamp to strip
     :return: pd.Timestamp version of date with no spare hours, minutes, seconds, or fractions of second
     """
-    return timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+    return timestamp.normalize()    # .replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _get_holidays_start_end(cal, start_datelike, end_datelike=None, fancy=False):

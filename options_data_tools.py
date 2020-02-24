@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from treasury_rates_reader import load_treasury_rates, get_rate
+from options_futures_expirations_v3 import DAY_OFFSET, DAY_NAME_TO_WEEKDAY_NUMBER_DICT
 
 
 def remove_duplicate_series(data, trade_date_col='trade_date', exp_date_col='exp_date',
@@ -154,3 +155,28 @@ def lookup_val_in_col(data, lookup_val, lookup_col, exact_only=False, groupby_co
             # No need to aggregate
             nearest_val_idx = col_val_abs_diff.idxmin()
             return data.loc[nearest_val_idx].copy()
+
+
+def change_weekday(data, date_col, old_weekday, new_weekday, verbose=False):
+    """ Change weekday of given date column to another weekday in the same (Monday-Sunday) week
+    :param data: input DataFrame containing at least date_col
+    :param date_col: column name of column containing dates
+    :param old_weekday: weekday to change; can be 0-6 or 'Monday'-'Sunday', i.e. number or string
+    :param new_weekday: weekday to change to; can be 0-6 or 'Monday'-'Sunday', i.e. number or string
+    :param verbose: set True to print a DataFrame showing changes
+    :return: DataFrame that is copy of input with date_col modified
+    """
+    if isinstance(old_weekday, str):
+        old_weekday = DAY_NAME_TO_WEEKDAY_NUMBER_DICT[old_weekday]
+    if isinstance(new_weekday, str):
+        new_weekday = DAY_NAME_TO_WEEKDAY_NUMBER_DICT[new_weekday]
+    n_days_shift = new_weekday - old_weekday
+    date_col_data = data[date_col]  # Slice of the original, which will go unmodified
+    change_weekday_index = date_col_data[date_col_data.dt.weekday == old_weekday].index
+    data_copy = data.copy()
+    data_copy.loc[change_weekday_index, date_col] += n_days_shift*DAY_OFFSET
+    if verbose:
+        change_weekday_df = pd.DataFrame({'old_dates': date_col_data.loc[change_weekday_index],
+                                          'new_dates': data_copy.loc[change_weekday_index, date_col]})
+        print(change_weekday_df)
+    return data_copy

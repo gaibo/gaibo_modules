@@ -4,6 +4,7 @@ from cboe_exchange_holidays_v3 import CboeTradingCalendar, datelike_to_timestamp
 
 CBOE_TRADING_CALENDAR = CboeTradingCalendar()
 BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=CBOE_TRADING_CALENDAR)
+DAY_OFFSET = pd.offsets.Day()
 DAY_NAME_TO_WEEKDAY_NUMBER_DICT = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
                                    'Friday': 4, 'Saturday': 5, 'Sunday': 6}
 TREASURY_FUTURES_MATURITY_TIME = pd.Timedelta('16:00:00')
