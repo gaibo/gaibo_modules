@@ -38,8 +38,7 @@ def add_t_to_exp(data, trade_date_col='trade_date', exp_date_col='exp_date',
     :return: unindexed DataFrame that is copy of input plus days to expiration column
     """
     data_copy = data.copy()
-    data_copy[new_t_to_exp_col] = \
-        (data[exp_date_col] - data[trade_date_col]).map(lambda td: td.days)/365
+    data_copy[new_t_to_exp_col] = (data[exp_date_col] - data[trade_date_col]) / pd.Timedelta(days=365)
     return data_copy
 
 
@@ -166,19 +165,23 @@ def change_weekday(data, date_col, old_weekday, new_weekday, verbose=False):
     :param verbose: set True to print a DataFrame showing changes
     :return: DataFrame that is copy of input with date_col modified
     """
+    if not data.index.is_unique:
+        raise ValueError("input DataFrame has non-unique index. this is generally problematic")
     if isinstance(old_weekday, str):
         old_weekday = DAY_NAME_TO_WEEKDAY_NUMBER_DICT[old_weekday]
     if isinstance(new_weekday, str):
         new_weekday = DAY_NAME_TO_WEEKDAY_NUMBER_DICT[new_weekday]
-    n_days_shift = new_weekday - old_weekday
+    # Find dates in need of change
     date_col_data = data[date_col]  # Slice of the original, which will go unmodified
-    change_weekday_index = date_col_data[date_col_data.dt.weekday == old_weekday].index
+    dates_to_change = date_col_data[date_col_data.dt.weekday == old_weekday]
+    change_index = dates_to_change.index
+    # Apply changes to copy of DataFrame
     data_copy = data.copy()
-    data_copy.loc[change_weekday_index, date_col] += n_days_shift*DAY_OFFSET
+    n_days_shift = new_weekday - old_weekday
+    data_copy.loc[change_index, date_col] += n_days_shift*DAY_OFFSET
     if verbose:
-        change_weekday_df = pd.DataFrame({'old_dates': date_col_data.loc[change_weekday_index],
-                                          'new_dates': data_copy.loc[change_weekday_index, date_col]})
+        change_weekday_df = pd.DataFrame({'old_dates': dates_to_change,
+                                          'new_dates': data_copy.loc[change_index, date_col]})
         print(change_weekday_df)
-    print(f"{len(change_weekday_index)} changes, "
-          f"{len(date_col_data.loc[change_weekday_index].unique())} unique")
+    print(f"{len(change_index):,} changes, {len(dates_to_change.unique()):,} unique")
     return data_copy
