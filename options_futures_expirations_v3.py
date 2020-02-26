@@ -44,6 +44,39 @@ def last_day_of_month(monthlike):
     return next_month_first_day(monthlike) - pd.DateOffset(days=1)
 
 
+def ensure_bus_day(datelike, shift_to='prev'):
+    """ Ensure that all dates are business days, shifting to either previous or next if not
+        NOTE: as of 2020-02-26, function produces PerformanceWarning due to vectorization of
+              CustomBusinessDay addition not being implemented in pandas.offsets
+    :param datelike: date-like representation, e.g. ['2019-01-03', '2020-02-25'], datetime object, etc.
+    :param shift_to: 'prev' or 'next' to indicate which business day to correct to
+    :return: pd.Timestamps of business dates
+    """
+    date = datelike_to_timestamp(datelike)
+    if isinstance(date, pd.Timestamp):
+        # Single-element - no need to optimize
+        if shift_to == 'prev':
+            bus_date = date + BUSDAY_OFFSET - BUSDAY_OFFSET
+        elif shift_to == 'next':
+            bus_date = date - BUSDAY_OFFSET + BUSDAY_OFFSET
+        else:
+            raise ValueError("shift_to must indicate either 'prev' or 'next' business day")
+        return bus_date
+    else:
+        # Multi-element - optimize based on logic that there are not too many unique dates in history
+        unique_date = date.drop_duplicates()
+        if shift_to == 'prev':
+            unique_bus_date = unique_date + BUSDAY_OFFSET - BUSDAY_OFFSET
+        elif shift_to == 'next':
+            unique_bus_date = unique_date - BUSDAY_OFFSET + BUSDAY_OFFSET
+        else:
+            raise ValueError("shift_to must indicate either 'prev' or 'next' business day")
+        date_df = pd.DataFrame({'date': date})  # Can't use .to_frame() in case date is np.ndarray
+        unique_date_df = pd.DataFrame({'unique_date': unique_date, 'unique_bus_date': unique_bus_date})
+        merged_df = date_df.merge(unique_date_df, how='left', left_on='date', right_on='unique_date')
+        return merged_df['unique_bus_date']
+
+
 ###############################################################################
 # Simple next and previous iteration
 

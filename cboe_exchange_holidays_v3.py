@@ -2,6 +2,7 @@
 # https://stackoverflow.com/questions/33094297/create-trading-holiday-calendar-with-pandas
 
 import pandas as pd
+import numpy as np
 from pandas.tseries.holiday import \
     AbstractHolidayCalendar, Holiday, MO, nearest_workday, sunday_to_monday, \
     USMartinLutherKingJr, USPresidentsDay, GoodFriday, USMemorialDay, USLaborDay, USThanksgivingDay, \
@@ -77,33 +78,65 @@ class FICCGSDBusinessCalendar(BaseTradingCalendar):
 
 
 def datelike_to_timestamp(datelike):
-    """ Utility: Convert date-like representations to pd.Timestamp, for consistency
-    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
-    :return: pd.Timestamp version of date
+    """ Utility: Convert date-like representations to pd.Timestamps, for consistency
+        NOTE: if datelike must be converted, it is first changed to string to avoid becoming nanoseconds
+    :param datelike: date-like representation, e.g. ['2019-01-03', '2020-02-25'], datetime object, etc.
+    :return: pd.Timestamp version of dates
     """
-    if not isinstance(datelike, pd.Timestamp):
-        return pd.to_datetime(str(datelike))
-    else:
+    if isinstance(datelike, pd.Series) or isinstance(datelike, np.ndarray):
+        # Optimized multi-element input
+        if datelike.dtype == np.dtype('datetime64[ns]'):
+            return datelike
+        else:
+            return pd.to_datetime(datelike.astype(str))
+    elif isinstance(datelike, pd.Timestamp):
+        # Optimized single-element input
         return datelike
+    elif isinstance(datelike, str):
+        # Semi-optimized single-element input
+        return pd.to_datetime(datelike)
+    else:
+        try:
+            # Generic multi-element (iterable) input
+            return pd.to_datetime(list(map(str, datelike)))
+        except TypeError:
+            # Generic single-element input
+            return pd.to_datetime(str(datelike))
 
 
 def timelike_to_timedelta(timelike):
-    """ Utility: Convert time-like representations to pd.Timedelta, for consistency
-    :param timelike: time-like representation, e.g. '16:15:43', datetime object, etc.
-    :return: pd.Timedelta version of time
+    """ Utility: Convert time-like representations to pd.Timedeltas, for consistency
+    :param timelike: time-like representation, e.g. ['16:15:43', '10:28:43'], datetime object, etc.
+    :return: pd.Timedelta version of times
     """
-    if not isinstance(timelike, pd.Timedelta):
-        return pd.Timedelta(str(timelike))
-    else:
+    if isinstance(timelike, pd.Series) or isinstance(timelike, np.ndarray):
+        # Optimized multi-element input
+        if timelike.dtype == np.dtype('timedelta64[ns]'):
+            return timelike
+        else:
+            return pd.to_timedelta(timelike)
+    elif isinstance(timelike, pd.Timedelta):
+        # Optimized single-element input
         return timelike
+    else:
+        # Generic input
+        return pd.to_timedelta(timelike)
 
 
 def strip_to_date(timestamp):
-    """ Utility: Strip Timestamp to date only
-    :param timestamp: pd.Timestamp to strip
-    :return: pd.Timestamp version of date with no spare hours, minutes, seconds, or fractions of second
+    """ Utility: Strip pd.Timestamps to dates only
+    :param timestamp: pd.Timestamp(s) to strip
+    :return: pd.Timestamp version of dates with no spare hours, minutes, seconds, or fractions of second
     """
-    return timestamp.normalize()    # .replace(hour=0, minute=0, second=0, microsecond=0)
+    if isinstance(timestamp, pd.Series):
+        # Optimized multi-element input
+        return timestamp.dt.normalize()     # .replace(hour=0, minute=0, second=0, microsecond=0)
+    elif isinstance(timestamp, np.ndarray):
+        # Semi-optimized multi-element input
+        return pd.Series(timestamp).dt.normalize()
+    else:
+        # Single-element input
+        return timestamp.normalize()
 
 
 def _get_holidays_start_end(cal, start_datelike, end_datelike=None, fancy=False):
@@ -175,19 +208,49 @@ def get_ficcgsd_holidays(year=None, start_datelike=None, end_datelike=None, fanc
 ###############################################################################
 
 if __name__ == '__main__':
-    print("\nCboe Year Holidays Check:")
+    print("\nCboe Year Holidays Test\n")
     print("2011:\n{}".format(get_cboe_holidays(2011)))
     print("2016:\n{}".format(get_cboe_holidays(2016)))
     print("2019:\n{}".format(get_cboe_holidays(2019)))
     print("2022:\n{}".format(get_cboe_holidays(2022)))
-    print("\nCboe Date Range Holidays Check:")
+
+    print("\nCboe Date Range Holidays Test\n")
     print("get_cboe_holidays(start_datelike='2019-11-08', end_datelike='2019-12-31'):\n{}"
           .format(get_cboe_holidays(start_datelike='2019-11-08', end_datelike='2019-12-31')))
     print("get_cboe_holidays(start_datelike=2018):\n{}"
           .format(get_cboe_holidays(start_datelike=2018)))
 
+    print("\nTimestamp Utilities Test\n")
+    print("**datelike_to_timestamp()**")
+    single_element_gen_1 = '2020-02-25'
+    single_element_gen_2 = 2020
+    single_element_ts = pd.Timestamp('2020-02-25 11:31:08.542488')
+    multi_element_gen = [single_element_ts, '2010-03-31', single_element_ts]
+    multi_element_ser_gen = pd.Series(multi_element_gen)
+    multi_element_ser_ts = pd.Series([single_element_ts] * 5)
+    multi_element_arr_gen = np.array(multi_element_gen)
+    multi_element_arr_ts = np.array([single_element_ts] * 5)
+    datelike_test_list = [single_element_gen_1, single_element_gen_2, single_element_ts,
+                          multi_element_gen, multi_element_ser_gen, multi_element_ser_ts,
+                          multi_element_arr_gen, multi_element_arr_ts]
+    for i, datelike_test in enumerate(datelike_test_list, 1):
+        print(f"Test {i}:\n{datelike_to_timestamp(datelike_test)}")
+    print("**timelike_to_timedelta()**")
+    single_element_time_gen = '10:28:43'
+    single_element_time_td = pd.Timedelta('10:28:43')
+    multi_element_time_gen = ['16:15:43', '10:28:43', '10:28:43']
+    multi_element_time_td = pd.to_timedelta(multi_element_time_gen)
+    timelike_test_list = [single_element_time_gen, single_element_time_td,
+                          multi_element_time_gen, multi_element_time_td]
+    for i, timelike_test in enumerate(timelike_test_list, 1):
+        print(f"Test {i}:\n{timelike_to_timedelta(timelike_test)}")
+    print("**strip_to_date()**")
+    print(f"strip_to_date(multi_element_ser_ts):\n{strip_to_date(multi_element_ser_ts)}")
+    print(f"strip_to_date(multi_element_arr_ts):\n{strip_to_date(multi_element_arr_ts)}")
+
 """ Expected Output
-Cboe Year Holidays Check:
+Cboe Year Holidays Test
+
 2011:
 DatetimeIndex(['2011-01-01', '2011-01-17', '2011-02-21', '2011-04-22',
                '2011-05-30', '2011-07-04', '2011-09-05', '2011-11-24',
@@ -209,7 +272,8 @@ DatetimeIndex(['2022-01-01', '2022-01-17', '2022-02-21', '2022-04-15',
                '2022-12-26'],
               dtype='datetime64[ns]', freq=None)
 
-Cboe Date Range Holidays Check:
+Cboe Date Range Holidays Test
+
 get_cboe_holidays(start_datelike='2019-11-08', end_datelike='2019-12-31'):
 DatetimeIndex(['2019-11-28', '2019-12-25'], dtype='datetime64[ns]', freq=None)
 get_cboe_holidays(start_datelike=2018):
@@ -219,4 +283,63 @@ DatetimeIndex(['2018-01-01', '2018-01-15', '2018-02-19', '2018-03-30',
                '2019-02-18', '2019-04-19', '2019-05-27', '2019-07-04',
                '2019-09-02'],
               dtype='datetime64[ns]', freq=None)
+
+Timestamp Utilities Test
+
+**datelike_to_timestamp()**
+Test 1:
+2020-02-25 00:00:00
+Test 2:
+2020-01-01 00:00:00
+Test 3:
+2020-02-25 11:31:08.542488
+Test 4:
+DatetimeIndex(['2020-02-25 11:31:08.542488',        '2010-03-31 00:00:00',
+               '2020-02-25 11:31:08.542488'],
+              dtype='datetime64[ns]', freq=None)
+Test 5:
+0   2020-02-25 11:31:08.542488
+1   2010-03-31 00:00:00.000000
+2   2020-02-25 11:31:08.542488
+dtype: datetime64[ns]
+Test 6:
+0   2020-02-25 11:31:08.542488
+1   2020-02-25 11:31:08.542488
+2   2020-02-25 11:31:08.542488
+3   2020-02-25 11:31:08.542488
+4   2020-02-25 11:31:08.542488
+dtype: datetime64[ns]
+Test 7:
+DatetimeIndex(['2020-02-25 11:31:08.542488',        '2010-03-31 00:00:00',
+               '2020-02-25 11:31:08.542488'],
+              dtype='datetime64[ns]', freq=None)
+Test 8:
+DatetimeIndex(['2020-02-25 11:31:08.542488', '2020-02-25 11:31:08.542488',
+               '2020-02-25 11:31:08.542488', '2020-02-25 11:31:08.542488',
+               '2020-02-25 11:31:08.542488'],
+              dtype='datetime64[ns]', freq=None)
+**timelike_to_timedelta()**
+Test 1:
+0 days 10:28:43
+Test 2:
+0 days 10:28:43
+Test 3:
+TimedeltaIndex(['16:15:43', '10:28:43', '10:28:43'], dtype='timedelta64[ns]', freq=None)
+Test 4:
+TimedeltaIndex(['16:15:43', '10:28:43', '10:28:43'], dtype='timedelta64[ns]', freq=None)
+**strip_to_date()**
+strip_to_date(multi_element_ser_ts):
+0   2020-02-25
+1   2020-02-25
+2   2020-02-25
+3   2020-02-25
+4   2020-02-25
+dtype: datetime64[ns]
+strip_to_date(multi_element_arr_ts):
+0   2020-02-25
+1   2020-02-25
+2   2020-02-25
+3   2020-02-25
+4   2020-02-25
+dtype: datetime64[ns]
 """
