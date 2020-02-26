@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from treasury_rates_reader import load_treasury_rates, get_rate
-from options_futures_expirations_v3 import DAY_OFFSET, DAY_NAME_TO_WEEKDAY_NUMBER_DICT
+from options_futures_expirations_v3 import DAY_OFFSET, DAY_NAME_TO_WEEKDAY_NUMBER_DICT, ensure_bus_day
 
 
 def remove_duplicate_series(data, trade_date_col='trade_date', exp_date_col='exp_date',
@@ -156,12 +156,16 @@ def lookup_val_in_col(data, lookup_val, lookup_col, exact_only=False, groupby_co
             return data.loc[nearest_val_idx].copy()
 
 
-def change_weekday(data, date_col, old_weekday, new_weekday, verbose=False):
+def change_weekday(data, date_col, old_weekday, new_weekday,
+                   do_ensure_bus_day=False, ensure_bus_day_shift_to='prev', verbose=False):
     """ Change weekday of given date column to another weekday in the same (Monday-Sunday) week
     :param data: input DataFrame containing at least date_col
     :param date_col: column name of column containing dates
     :param old_weekday: weekday to change; can be 0-6 or 'Monday'-'Sunday', i.e. number or string
     :param new_weekday: weekday to change to; can be 0-6 or 'Monday'-'Sunday', i.e. number or string
+    :param do_ensure_bus_day: set True to ensure that all new dates are business days
+    :param ensure_bus_day_shift_to: if do_ensure_bus_day is True, set 'prev' or 'next' to indicate
+                                    which business day to correct to
     :param verbose: set True to print a DataFrame showing changes
     :return: DataFrame that is copy of input with date_col modified
     """
@@ -179,6 +183,9 @@ def change_weekday(data, date_col, old_weekday, new_weekday, verbose=False):
     data_copy = data.copy()
     n_days_shift = new_weekday - old_weekday
     data_copy.loc[change_index, date_col] += n_days_shift*DAY_OFFSET
+    if do_ensure_bus_day:
+        data_copy.loc[change_index, date_col] = \
+            ensure_bus_day(data_copy.loc[change_index, date_col], ensure_bus_day_shift_to)
     if verbose:
         change_weekday_df = pd.DataFrame({'old_dates': dates_to_change,
                                           'new_dates': data_copy.loc[change_index, date_col]})
