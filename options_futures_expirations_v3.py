@@ -1,9 +1,11 @@
 import pandas as pd
-from cboe_exchange_holidays_v3 import CboeTradingCalendar, datelike_to_timestamp, \
-                                      timelike_to_timedelta, strip_to_date
+from cboe_exchange_holidays_v3 import CboeTradingCalendar, FICCGSDBusinessCalendar, \
+                                      datelike_to_timestamp, timelike_to_timedelta, strip_to_date
 
 CBOE_TRADING_CALENDAR = CboeTradingCalendar()
 BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=CBOE_TRADING_CALENDAR)
+TREASURY_BUSINESS_CALENDAR = FICCGSDBusinessCalendar()
+TREASURY_BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=TREASURY_BUSINESS_CALENDAR)
 DAY_OFFSET = pd.offsets.Day()
 DAY_NAME_TO_WEEKDAY_NUMBER_DICT = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
                                    'Friday': 4, 'Saturday': 5, 'Sunday': 6}

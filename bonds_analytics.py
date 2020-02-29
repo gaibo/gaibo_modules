@@ -418,7 +418,7 @@ def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor):
     c = (1/1.03)**(2*n) if z < 7 else (1/1.03)**(2*n+1)
     d = coupon/0.06 * (1-c)
     factor = a * (coupon/2 + c + d) - b
-    return factor
+    return round(factor, 4)     # CME officially rounds it to 4 decimal places
 
 
 def _get_cme_yearmonth_differences(earlier_dates, later_dates, tenor, return_full_df=False):
