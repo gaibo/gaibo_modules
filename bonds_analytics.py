@@ -272,13 +272,13 @@ def get_last_delivery_date(delivery_monthlike, tenor):
     :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
     :return: pd.Timestamp
     """
-    delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
+    delivery_month_first = datelike_to_timestamp(delivery_monthlike).normalize().replace(day=1)
     if tenor in [10, 30]:
         # Last trading day of month
-        last_delivery_date = delivery_month + pd.DateOffset(months=1) - BUSDAY_OFFSET
+        last_delivery_date = delivery_month_first + pd.DateOffset(months=1) - BUSDAY_OFFSET
     else:
         # 3rd trading day of next month
-        last_delivery_date = delivery_month + pd.DateOffset(months=1) - DAY_OFFSET + 3*BUSDAY_OFFSET
+        last_delivery_date = delivery_month_first + pd.DateOffset(months=1) - DAY_OFFSET + 3*BUSDAY_OFFSET
     return last_delivery_date
 
 
@@ -408,8 +408,8 @@ def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor, 
     :return: numerical conversion factor
     """
     coupon = coupon / 100
-    delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
-    whole_years, whole_months, _ = get_whole_year_month_day_difference(delivery_month, maturity_datelike)
+    delivery_month_first = datelike_to_timestamp(delivery_monthlike).normalize().replace(day=1)
+    whole_years, whole_months, _ = get_whole_year_month_day_difference(delivery_month_first, maturity_datelike)
     # Officially defined calculation
     n = whole_years
     z = whole_months//3*3 if tenor in [10, 30] else whole_months  # Round down to quarter for 10-, 30-year
@@ -483,9 +483,9 @@ def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None,
         as_of_date = pd.Timestamp('now')
     if loaded_universe_history is None:
         loaded_universe_history = load_notesbonds_universe_history()
-    delivery_month = datelike_to_timestamp(delivery_monthlike).replace(day=1)
-    last_delivery_date = get_last_delivery_date(delivery_month, tenor)
-    available_universe = (loaded_universe_history[(loaded_universe_history['maturityDate'] >= delivery_month)
+    delivery_month_first = datelike_to_timestamp(delivery_monthlike).normalize().replace(day=1)
+    last_delivery_date = get_last_delivery_date(delivery_month_first, tenor)
+    available_universe = (loaded_universe_history[(loaded_universe_history['maturityDate'] >= delivery_month_first)
                                                   & (loaded_universe_history['issueDate'] <= last_delivery_date)
                                                   & (loaded_universe_history['announcementDate'] <= as_of_date)]
                           .drop_duplicates('cusip', keep='first').set_index('cusip'))
@@ -497,7 +497,7 @@ def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None,
                                             tenor, return_full_df=True)
     otm_fields = ['OTMYears', 'OTMMonths', 'OTMDays', 'OTMMonthsRounded', 'originalTermToMaturity']
     semiannuals[otm_fields] = otm_df
-    delivery_month_series = pd.Series(delivery_month, index=semiannuals.index)
+    delivery_month_series = pd.Series(delivery_month_first, index=semiannuals.index)
     rtm_df = _get_cme_yearmonth_differences(delivery_month_series, semiannuals['maturityDate'],
                                             tenor, return_full_df=True)
     rtfc_df = _get_cme_yearmonth_differences(delivery_month_series, semiannuals['callDate'],
@@ -529,8 +529,8 @@ def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None,
         raise ValueError(f"Tenor of '{tenor}' is currently unsupported.")
     # Calculate futures conversion factor to help with eventually calculating implied repo rate/cheapest-to-deliver
     basket['conversionFactor'] = \
-        basket.apply(lambda row:
-                     get_conversion_factor(row['interestRate'], row['maturityDate'], delivery_month, tenor), axis=1)
+        basket.apply(lambda row: get_conversion_factor(row['interestRate'], row['maturityDate'],
+                                                       delivery_month_first, tenor), axis=1)
     return basket
 
 
