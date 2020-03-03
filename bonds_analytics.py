@@ -397,13 +397,14 @@ def get_whole_year_month_day_difference(datelike_1, datelike_2):
         return whole_years, whole_months, whole_days
 
 
-def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor):
+def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor, no_rounding=False):
     """ Calculate Treasury futures conversion factor - approximate decimal price
         at which $1 par of security would trade if it had a 6% yield to maturity
     :param coupon: coupon percentage of bond, e.g. 2.875
     :param maturity_datelike: maturity date of bond
     :param delivery_monthlike: delivery/maturity month of futures, e.g. for TYH0 Comdty, it's 2020-03
     :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
+    :param no_rounding: set True to prevent final rounding to 4 decimal places
     :return: numerical conversion factor
     """
     coupon = coupon / 100
@@ -418,7 +419,10 @@ def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor):
     c = (1/1.03)**(2*n) if z < 7 else (1/1.03)**(2*n+1)
     d = coupon/0.06 * (1-c)
     factor = a * (coupon/2 + c + d) - b
-    return round(factor, 4)     # CME officially rounds it to 4 decimal places
+    if no_rounding:
+        return factor
+    else:
+        return round(factor, 4)     # CME officially rounds it to 4 decimal places
 
 
 def _get_cme_yearmonth_differences(earlier_dates, later_dates, tenor, return_full_df=False):
@@ -653,7 +657,7 @@ if __name__ == '__main__':
                        (3.75, '2018-11-15', '2008-12', 10),
                        (4.5, '2038-05-15', '2008-12', 30))
     for true_cf, (test_coupon, test_maturity, test_delivery_month, test_tenor) in zip(true_cfs, test_parameters):
-        result = get_conversion_factor(test_coupon, test_maturity, test_delivery_month, test_tenor)
+        result = get_conversion_factor(test_coupon, test_maturity, test_delivery_month, test_tenor, no_rounding=True)
         print(f"{test_tenor}-year:\n"
               f"    {test_delivery_month} futures delivering {test_coupon}s of {test_maturity}:\n"
               f"    {result}")
