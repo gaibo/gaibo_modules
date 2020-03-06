@@ -227,6 +227,29 @@ def last_friday(datelike_in_month):
     return latest_applicable_friday + BUSDAY_OFFSET - BUSDAY_OFFSET
 
 
+def vix_thirty_days_before(expiry_func=third_friday):
+    """ Create function (through augmenting input function) to:
+        Return VIX-style expiration date of month, i.e. 30 days (31 if 30 yields holiday)
+        prior to expiration of next month's options on asset underlying VIX
+        Usage: vix_thirty_days_before()('2020-02-24') yields Timestamp('2020-02-19 00:00:00')
+    :param expiry_func: monthly expiration date function for asset underlying VIX;
+                        third_friday for S&P 500 VIX, last_friday for Treasury VIX
+    :return: function that take parameter datelike_in_month and returns pd.Timestamp
+    """
+    def wrapper(datelike_in_month):
+        """ Wrap asset expiration date of month function to return VIX-style expiration """
+        date_in_month = datelike_to_timestamp(datelike_in_month)
+        date_in_next_month = date_in_month + pd.DateOffset(months=1)
+        base_expiry = expiry_func(date_in_next_month)
+        base_minus_thirty = base_expiry - 30*DAY_OFFSET
+        # Ensure date is not a holiday - shift to date prior if needed
+        # To our knowledge, the singular precedent is VIX Weeklys on 2018-12-05 - George
+        # H. W. Bush's Day of Mourning fell on a Wednesday and shifted expiration to Tuesday
+        base_minus_thirty_bus_day = ensure_bus_day(base_minus_thirty, shift_to='prev')
+        return base_minus_thirty_bus_day
+    return wrapper
+
+
 ###############################################################################
 # Complex product expiry/maturity tools
 
@@ -394,7 +417,7 @@ def prev_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
 
 if __name__ == '__main__':
     # next_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
-    #             curr_month_as_first_term=False)
+    #             curr_month_as_first_term=False, expiry_time=None)
     print("next_expiry('2019-04-09'):\n{}"
           .format(next_expiry('2019-04-09')))
     print("next_expiry('2019-04-09', n_terms=2):\n{}"
@@ -421,6 +444,12 @@ if __name__ == '__main__':
                               curr_month_as_first_term=True, expiry_time='14:00:00')))
     print("next_expiry('2019-03-20 16:00:00', expiry_func=last_friday, expiry_time='11:59:59'):\n{}"
           .format(next_expiry('2019-03-20 16:00:00', expiry_func=last_friday, expiry_time='11:59:59')))
+    print("next_expiry('2018-10-12', expiry_func=vix_thirty_days_before(third_friday), n_terms=3):\n{}"
+          .format(next_expiry('2018-10-12', expiry_func=vix_thirty_days_before(third_friday), n_terms=3)))
+    print("next_expiry('2019-05-01', expiry_func=vix_thirty_days_before(last_friday), n_terms=1):\n{}"
+          .format(next_expiry('2019-05-01', expiry_func=vix_thirty_days_before(last_friday), n_terms=1)))
+    print("next_expiry('2019-05-01', expiry_func=vix_thirty_days_before(last_friday), n_terms=2):\n{}"
+          .format(next_expiry('2019-05-01', expiry_func=vix_thirty_days_before(last_friday), n_terms=2)))
     # next_treasury_futures_maturity(datelike, n_terms=1, tenor=10)
     print("next_treasury_futures_maturity('2019-02-09'):\n{}"
           .format(next_treasury_futures_maturity('2019-02-09')))
@@ -463,6 +492,12 @@ prev_expiry('2017-02-24', expiry_func=last_friday, n_terms=12,
 2016-03-24 14:00:00
 next_expiry('2019-03-20 16:00:00', expiry_func=last_friday, expiry_time='11:59:59'):
 2019-03-22 11:59:59
+next_expiry('2018-10-12', expiry_func=vix_thirty_days_before(third_friday), n_terms=3):
+2018-12-19 00:00:00
+next_expiry('2019-05-01', expiry_func=vix_thirty_days_before(last_friday), n_terms=1):
+2019-05-22 00:00:00
+next_expiry('2019-05-01', expiry_func=vix_thirty_days_before(last_friday), n_terms=2):
+2019-06-26 00:00:00
 next_treasury_futures_maturity('2019-02-09'):
 2019-03-20 16:00:00
 next_treasury_futures_maturity('2019-02-09', 2):
