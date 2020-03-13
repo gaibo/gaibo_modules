@@ -4,7 +4,8 @@ from cboe_exchange_holidays_v3 import datelike_to_timestamp
 
 BLOOMBERG_PULLS_FILEDIR = 'P:/PrdDevSharedDB/BBG Pull Scripts/'
 TREASURY_FUT_CSV_FILENAME = 'treasury_futures_pull.csv'
-TENOR_TO_CODE_DICT = {2: 'TU', 5: 'FV', 10: 'TY', 30: 'US'}
+TENOR_CODE_DICT = {2: 'TU', 5: 'FV', 10: 'TY', 30: 'US'}
+CODE_TENOR_DICT = {'TU': 2, 'FV': 5, 'TY': 10, 'US': 30}
 EXPMONTH_CODE_DICT = {1: 'F', 2: 'G', 3: 'H', 4: 'J', 5: 'K', 6: 'M',
                       7: 'N', 8: 'Q', 9: 'U', 10: 'V', 11: 'X', 12: 'Z'}
 CODE_EXPMONTH_DICT = {'F': 1, 'G': 2, 'H': 3, 'J': 4, 'K': 5, 'M': 6,
@@ -45,7 +46,7 @@ def fut_ticker(tenor, expiry_monthlike, expiry_type='options', use_single_digit_
     :param no_comdty: set True to omit the Bloomberg-specific ' Comdty' from the ticker
     :return: string Bloomberg ticker; e.g. 'TYM18 Comdty' for 10-year June futures in 2018
     """
-    tenor_code = TENOR_TO_CODE_DICT[tenor]
+    tenor_code = TENOR_CODE_DICT[tenor]
     expiry_month = datelike_to_timestamp(expiry_monthlike)
     if expiry_type == 'options':
         next_month_and_year = expiry_month + pd.DateOffset(months=1)
@@ -65,6 +66,29 @@ def fut_ticker(tenor, expiry_monthlike, expiry_type='options', use_single_digit_
     if not no_comdty:
         ticker += ' Comdty'
     return ticker
+
+
+def reverse_fut_ticker(ticker, decade_helper=None, is_single_digit_year=False, no_comdty=False):
+    """ Reverse fut_ticker - derive tenor and expiry year-month from Bloomberg futures ticker
+    :param ticker: string Bloomberg ticker; e.g. 'TYM18 Comdty', 'FVZ9'
+    :param decade_helper: ensure accuracy of expiry year by providing the correct decade;
+                          this is ideal as Bloomberg tickers only provide one or two digits for year
+    :param is_single_digit_year: set True if ticker only includes one digit for year (False indicates two)
+    :param no_comdty: set True if ticker omits ' Comdty'
+    :return: (numerical tenor, string expiry year-month); e.g. (10, '2020-03')
+    """
+    if not no_comdty:
+        ticker = ticker.split()[0]  # Omit ' Comdty' part of ticker
+    tenor = CODE_TENOR_DICT[ticker[:2]]
+    expiry_month_num = CODE_EXPMONTH_DICT[ticker[2]]
+    expiry_year_num = int(ticker[3:])
+    if decade_helper is None:
+        decade_helper = pd.Timestamp('now').year    # Use current year as reference; not ideal
+    if is_single_digit_year:
+        expiry_year_num += decade_helper - (decade_helper % 10)
+    else:
+        expiry_year_num += decade_helper - (decade_helper % 100)
+    return tenor, f'{expiry_year_num}-{expiry_month_num:02d}'
 
 
 def create_bloomberg_connection(debug=False, port=8194, timeout=25000):
@@ -95,7 +119,7 @@ def pull_fut_prices(start_datelike, end_datelike, bloomberg_con=None,
     end_date = datelike_to_timestamp(end_datelike)
     # Create list of all Treasury futures Bloomberg tickers in use between start and end dates
     ticker_list = []
-    for tenor_code in TENOR_TO_CODE_DICT.values():
+    for tenor_code in TENOR_CODE_DICT.values():
         for year in range(start_date.year, end_date.year):
             # For all years up to but not including current year of end_date
             for quarter_code in QUARTER_CODE_LIST:
