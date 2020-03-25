@@ -1,6 +1,6 @@
 import pandas as pd
 from numpy import floor
-from options_futures_expirations_v2 import last_friday
+from options_futures_expirations_v3 import last_friday
 
 REASONABLE_DOLLAR_STRIKE_LIMIT = 300    # $300 on a $100 face value is pushing it
 REASONABLE_DOLLAR_PRICE_LIMIT = 120     # $120 premium on $100 face value is pushing it
