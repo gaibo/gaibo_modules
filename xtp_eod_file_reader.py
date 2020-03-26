@@ -85,3 +85,50 @@ if __name__ == '__main__':
     print(f"Usable data dates with settlement price changes: {len(PRICE_CHANGE_DATES)}")
     print(f"File found but data empty dates ({len(EMPTY_DATA_DATES)}): {EMPTY_DATA_DATES}")
     print(f"File not found dates ({len(MISSING_DATA_DATES)}): {MISSING_DATA_DATES}")
+
+""" Expected Output:
+WARNING: 2019-10-28 settlement price(s) changed between snapshots; sum of changes is 0.15625.
+WARNING: 2019-10-29 settlement price(s) changed between snapshots; sum of changes is 0.46875.
+WARNING: 2019-11-04 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+WARNING: 2019-12-06 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+WARNING: 2019-12-12 settlement price(s) changed between snapshots; sum of changes is 1.53125.
+WARNING: 2019-12-13 settlement price(s) changed between snapshots; sum of changes is 0.0625.
+WARNING: 2019-12-20 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+WARNING: 2019-12-23 settlement price(s) changed between snapshots; sum of changes is 0.078125.
+WARNING: 2019-12-27 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+WARNING: 2020-01-06 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+WARNING: 2020-01-07 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+WARNING: 2020-01-08 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+WARNING: 2020-01-09 settlement price(s) changed between snapshots; sum of changes is 0.328125.
+WARNING: 2020-01-10 settlement price(s) changed between snapshots; sum of changes is 0.125.
+WARNING: 2020-01-16 settlement price(s) changed between snapshots; sum of changes is 0.28125.
+WARNING: 2020-01-21 settlement price(s) changed between snapshots; sum of changes is 0.0625.
+WARNING: 2020-01-27 settlement price(s) changed between snapshots; sum of changes is 0.21875.
+WARNING: 2020-01-28 settlement price(s) changed between snapshots; sum of changes is 0.28125.
+WARNING: 2020-01-29 settlement price(s) changed between snapshots; sum of changes is 0.015625.
+WARNING: 2020-01-31 settlement price(s) changed between snapshots; sum of changes is 0.5.
+WARNING: 2020-02-03 settlement price(s) changed between snapshots; sum of changes is 0.21875.
+WARNING: 2020-02-04 settlement price(s) changed between snapshots; sum of changes is 0.421875.
+WARNING: 2020-02-05 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+WARNING: 2020-02-06 settlement price(s) changed between snapshots; sum of changes is 0.125.
+WARNING: 2020-02-07 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+WARNING: 2020-02-13 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+WARNING: 2020-02-14 settlement price(s) changed between snapshots; sum of changes is 0.1875.
+WARNING: 2020-02-18 settlement price(s) changed between snapshots; sum of changes is 0.0625.
+WARNING: 2020-02-28 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+WARNING: 2020-03-02 settlement price(s) changed between snapshots; sum of changes is 0.0625.
+WARNING: 2020-03-03 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+WARNING: 2020-03-10 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+WARNING: 2020-03-12 settlement price(s) changed between snapshots; sum of changes is 1.234375.
+WARNING: 2020-03-16 settlement price(s) changed between snapshots; sum of changes is 2.75.
+WARNING: 2020-03-17 settlement price(s) changed between snapshots; sum of changes is 1.9375.
+WARNING: 2020-03-19 settlement price(s) changed between snapshots; sum of changes is 32.328125.
+WARNING: 2020-03-20 settlement price(s) changed between snapshots; sum of changes is 4.15625.
+WARNING: 2020-03-23 settlement price(s) changed between snapshots; sum of changes is 161.796875.
+WARNING: 2020-03-25 settlement price(s) changed between snapshots; sum of changes is 212.46875.
+Total trading dates: 103
+Usable data dates: 78
+Usable data dates with settlement price changes: 39
+File found but data empty dates (3): ['2020-01-17', '2020-02-24', '2020-03-06']
+File not found dates (22): ['2019-11-01', '2019-11-05', '2019-11-06', '2019-11-07', '2019-11-08', '2019-11-11', '2019-11-12', '2019-11-13', '2019-11-14', '2019-11-15', '2019-11-18', '2019-11-19', '2019-11-20', '2019-11-21', '2019-11-22', '2019-11-25', '2019-11-26', '2019-11-27', '2019-11-29', '2019-12-02', '2019-12-03', '2019-12-04']
+"""
