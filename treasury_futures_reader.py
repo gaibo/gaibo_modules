@@ -105,6 +105,77 @@ def create_bloomberg_connection(debug=False, port=8194, timeout=25000):
     return con
 
 
+def reformat_pdblp_ticker_field_value(tfv_format, ticker_index=None):
+    """ Reformat pdblp real-time output DataFrame format into something more readable
+    :param tfv_format: DataFrame with numerical index (unindexed) and 'ticker',
+                       'field', and 'value' columns
+    :param ticker_index: desired ordering of tickers in the output, reformatted DataFrame
+    :return: pd.DataFrame with 'ticker' index and columns named after fields
+    """
+    if tfv_format.empty:
+        print("WARNING: reformat_pdblp_ticker_field_value() input empty!")
+        return tfv_format.copy()
+    fields = tfv_format['field'].unique()
+    fields_dict = {}
+    for field in fields:
+        fields_dict[field] = (tfv_format[tfv_format['field'] == field]
+                              .drop('field', axis=1).set_index('ticker')['value'])
+    result_df = pd.DataFrame(fields_dict, index=ticker_index)
+    result_df.index.name = 'ticker'     # Important when exporting to CSV
+    return result_df
+
+
+def reformat_pdblp_bdh(bdh_format, ticker_index=None, squeeze=False):
+    """ Reformat pdblp historical output DataFrame format into something more readable
+    :param bdh_format: DataFrame with index of 'date', wherein each date contains a DataFrame
+                       that is comparable to the tfv_format of reformat_pdblp_ticker_field_value()
+    :param ticker_index: desired ordering of tickers in the output, reformatted DataFrame
+    :param squeeze: set True to drop 'date' index in the output, reformatted DataFrame if
+                    and only if input DataFrame contains only one date's worth of data
+    :return: pd.DataFrame with 'date' index, wherein each date contains a DataFrame with
+             'ticker' index and columns named after fields
+    """
+    if bdh_format.empty:
+        print("WARNING: reformat_pdblp_bdh() input empty!")
+        return bdh_format.copy()
+    bdh_days = bdh_format.index
+    bdh_days_list = []
+    for bdh_day in bdh_days:
+        # Model each date's data into "tfv_format" to use reformat_pdblp_ticker_field_value()
+        tfv_format = bdh_format.loc[bdh_day].reset_index().rename({bdh_day: 'value'}, axis=1)
+        bdh_day_format = (reformat_pdblp_ticker_field_value(tfv_format, ticker_index=ticker_index)
+                          .reset_index().assign(date=bdh_day).set_index(['date', 'ticker']))
+        bdh_days_list.append(bdh_day_format)
+    result_df = pd.concat(bdh_days_list)
+    if len(bdh_days) == 1 and squeeze:
+        return result_df.reset_index('date', drop=True)
+    else:
+        return result_df
+
+
+def reformat_pdblp(pdblp_result, ticker_index=None, is_bdh=False, squeeze=False):
+    """ Reformat pdblp output into something more readable - combination of
+        reformat_pdblp_ticker_field_value() and reformat_pdblp_bdh()
+    :param pdblp_result: resulting DataFrame of a pdblp Bloomberg query
+    :param ticker_index: desired ordering of tickers in the output, reformatted DataFrame
+    :param is_bdh: set True to indicate that pdblp data is BDH (historical daily data; con.bdh);
+                   set False to indicate that it is BDP (real-time snapshot data; con.ref)
+    :param squeeze: only applicable if pdblp data is BDH (i.e. is_bdh=True);
+                    set True to drop 'date' index in the output, reformatted DataFrame if
+                    and only if input DataFrame contains only one date's worth of data
+    :return: pd.DataFrame with 'date' index (if BDH), wherein each date contains a DataFrame
+             with 'ticker' index and columns named after fields
+    """
+    if pdblp_result.empty:
+        print("WARNING: reformat_pdblp() input empty!")
+        return pdblp_result.copy()
+    if is_bdh:
+        result_df = reformat_pdblp_bdh(pdblp_result, ticker_index=ticker_index, squeeze=squeeze)
+    else:
+        result_df = reformat_pdblp_ticker_field_value(pdblp_result, ticker_index=ticker_index)
+    return result_df
+
+
 def pull_fut_prices(start_datelike, end_datelike, bloomberg_con=None,
                     file_dir=BLOOMBERG_PULLS_FILEDIR, file_name=TREASURY_FUT_CSV_FILENAME):
     """ Pull Treasury futures prices from Bloomberg Terminal and write them to disk
