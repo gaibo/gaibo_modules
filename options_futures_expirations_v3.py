@@ -138,10 +138,18 @@ def next_quarterly_month(datelike, quarter_return_self=False):
     else:
         next_quarter_month = (date_month // 3 % 4 + 1) * 3  # This expression is super flexible
     if next_quarter_month < date_month:
-        year_increment = 1
+        next_quarter_month_year = date.year + 1
     else:
-        year_increment = 0
-    return date.replace(month=next_quarter_month) + pd.DateOffset(years=year_increment)
+        next_quarter_month_year = date.year
+    try:
+        change_month_date = date.replace(month=next_quarter_month,
+                                         year=next_quarter_month_year)
+    except ValueError:
+        # Day-of-month past end of new year-month
+        change_month_first = date.replace(day=1, month=next_quarter_month,
+                                          year=next_quarter_month_year)
+        change_month_date = last_day_of_month(change_month_first)
+    return change_month_date
 
 
 def prev_quarterly_month(datelike, quarter_return_self=False):
@@ -160,10 +168,18 @@ def prev_quarterly_month(datelike, quarter_return_self=False):
     else:
         prev_quarter_month = ((date_month-4) // 3 % 4 + 1) * 3
     if prev_quarter_month > date_month:
-        year_decrement = 1
+        prev_quarter_month_year = date.year - 1
     else:
-        year_decrement = 0
-    return date.replace(month=prev_quarter_month) - pd.DateOffset(years=year_decrement)
+        prev_quarter_month_year = date.year
+    try:
+        change_month_date = date.replace(month=prev_quarter_month,
+                                         year=prev_quarter_month_year)
+    except ValueError:
+        # Day-of-month past end of new year-month
+        change_month_first = date.replace(day=1, month=prev_quarter_month,
+                                          year=prev_quarter_month_year)
+        change_month_date = last_day_of_month(change_month_first)
+    return change_month_date
 
 
 def next_month_first_day(monthlike):

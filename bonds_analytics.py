@@ -29,9 +29,11 @@ def change_month(datelike, new_month):
     """
     date = datelike_to_timestamp(datelike)
     next_date = date + DAY_OFFSET
-    if date.month != next_date.month:
-        # Date is end-of-month; handle end of month differences
-        return next_date.replace(month=new_month+1) - DAY_OFFSET
+    new_month_first = date.replace(day=1, month=new_month)
+    if date.month != next_date.month or date.day > new_month_first.days_in_month:
+        # Either 1) date is end-of-month; use last day of new month too
+        #        2) date's day-of-month doesn't exist in new month; use last day of new month
+        return new_month_first + pd.DateOffset(months=1) - DAY_OFFSET
     else:
         return date.replace(month=new_month)
 
@@ -73,7 +75,7 @@ def change_year(datelike, new_year):
     if date.month == 2 and date.day == 28 and is_leap_year(new_year):
         return date.replace(year=new_year, day=29)  # 28->29
     elif date.month == 2 and date.day == 29 and not is_leap_year(new_year):
-        return date.replace(day=28, year=new_year)  # 29->28
+        return date.replace(year=new_year, day=28)  # 29->28
     else:
         return date.replace(year=new_year)
 
@@ -304,6 +306,10 @@ def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike
         delivery_date = get_last_delivery_date(delivery_monthlike, tenor)
     else:
         delivery_date = datelike_to_timestamp(delivery_datelike)
+    if settle_date >= delivery_date:
+        raise ValueError(f"ERROR: Settle date of bond ({settle_date.strftime('%Y-%m-%d')}) must be prior\n"
+                         f"       to delivery date of futures ({delivery_date.strftime('%Y-%m-%d')})\n"
+                         f"       for implied repo rate to exist.")
     # Find coupon dates and related accruals
     coupon_payment = coupon/2
     settle_prev_coupon_date, settle_next_coupon_date, settle_days_in_period, settle_days_since_coupon = \
