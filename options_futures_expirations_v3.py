@@ -6,11 +6,13 @@ CBOE_TRADING_CALENDAR = CboeTradingCalendar()
 BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=CBOE_TRADING_CALENDAR)
 TREASURY_BUSINESS_CALENDAR = FICCGSDBusinessCalendar()
 TREASURY_BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=TREASURY_BUSINESS_CALENDAR)
-DAY_OFFSET = pd.offsets.Day()
+DAY_OFFSET = pd.Timedelta(days=1)   # 2x speed of pd.offsets.Day() in date arithmetic
 DAY_NAME_TO_WEEKDAY_NUMBER_DICT = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
                                    'Friday': 4, 'Saturday': 5, 'Sunday': 6}
 TREASURY_FUTURES_MATURITY_TIME = pd.Timedelta('16:00:00')
 TREASURY_OPTIONS_EXPIRY_TIME = TREASURY_FUTURES_MATURITY_TIME
+ONE_YEAR = pd.Timedelta(days=365)
+THIRTY_DAYS = pd.Timedelta(days=30)
 
 
 ###############################################################################
@@ -25,25 +27,87 @@ def get_prev_business_day(datelike):
     return date - BUSDAY_OFFSET
 
 
-def n_before_last_bus_day(datelike_in_month, n):
+def n_before_last_bus_day(monthlike, n):
     """ Find date that is "n days preceding the last business day of the month";
         useful for certain expiries/maturities (e.g. Treasury options and futures)
-    :param datelike_in_month: date-like representation of any day in the month
+    :param monthlike: date-like representation with precision to month
+                      (i.e. can be any day in the month)
     :param n: number of days preceding last business day of month
     :return: pd.Timestamp
     """
-    date_in_month = datelike_to_timestamp(datelike_in_month)
-    next_month_first = date_in_month.replace(day=1) + pd.DateOffset(months=1)
-    this_month_last_bd = next_month_first - BUSDAY_OFFSET
-    return this_month_last_bd - n*BUSDAY_OFFSET
+    curr_month_last_busday = next_month_first_day(monthlike) - BUSDAY_OFFSET
+    return curr_month_last_busday - n*BUSDAY_OFFSET
 
 
-def last_day_of_month(monthlike):
-    """ Return last date of the month
+def n_before_month_last_day(monthlike, n=0, use_busdays=False):
+    """ Find date that is n days preceding the last (optionally business) day of the month
+        NOTE: n_before_last_bus_day(m, n) == n_before_month_last_day(m, n, use_busdays=True)
+              last_day_of_month(m) = n_before_month_last_day(m)
     :param monthlike: date-like representation with precision to month
+    :param n: number of days preceding last day of month
+    :param use_busdays: set True to use business (trading) days
     :return: pd.Timestamp
     """
-    return next_month_first_day(monthlike) - pd.DateOffset(days=1)
+    if use_busdays:
+        offset = BUSDAY_OFFSET
+    else:
+        offset = DAY_OFFSET
+    curr_month_last = next_month_first_day(monthlike) - offset
+    return curr_month_last - n*offset
+
+
+def is_end_of_month(datelike):
+    """ Return True iff date is last date in month
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :return: Boolean
+    """
+    date = datelike_to_timestamp(datelike)
+    next_date = date + DAY_OFFSET
+    return True if date.month != next_date.month else False
+
+
+def change_month(datelike, new_month):
+    """ Return date with month changed to specified month
+        NOTE: an end of month date will return the last day of the new month
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :param new_month: month to change the given date's month to
+    :return: pd.Timestamp
+    """
+    date = datelike_to_timestamp(datelike)
+    new_month_first = date.replace(day=1, month=new_month)
+    if is_end_of_month(date) or date.day > new_month_first.days_in_month:
+        # Either 1) date is end-of-month; use last day of new month too
+        #        2) date's day-of-month doesn't exist in new month; use last day of new month
+        return new_month_first + pd.DateOffset(months=1) - DAY_OFFSET
+    else:
+        return date.replace(month=new_month)
+
+
+def is_leap_year(year):
+    """ Return True iff year is a leap year """
+    if year % 4 == 0:
+        if year % 100 != 0 or year % 400 == 0:
+            return True
+    return False
+
+
+def change_year(datelike, new_year):
+    """ Return date with year changed to specified year
+        NOTE: last day of February will return last day of February in the specified year
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :param new_year: year to change given date's year to
+    :return: pd.Timestamp
+    """
+    if pd.isna(new_year):
+        return pd.NaT   # Necessary because real Timestamps cannot have year replaced with np.NaN
+    date = datelike_to_timestamp(datelike)
+    # Handle end of February, which may change depending on year
+    if date.month == 2 and date.day == 28 and is_leap_year(new_year):
+        return date.replace(year=new_year, day=29)  # 28->29
+    elif date.month == 2 and date.day == 29 and not is_leap_year(new_year):
+        return date.replace(year=new_year, day=28)  # 29->28
+    else:
+        return date.replace(year=new_year)
 
 
 def ensure_bus_day(datelike, shift_to='prev'):
@@ -81,6 +145,54 @@ def ensure_bus_day(datelike, shift_to='prev'):
 
 ###############################################################################
 # Simple next and previous iteration
+
+def next_month_first_day(monthlike):
+    """ Return first date of next month
+    :param monthlike: date-like representation with precision to month
+    :return: pd.Timestamp
+    """
+    month = datelike_to_timestamp(monthlike)
+    return month.replace(day=1) + pd.DateOffset(months=1)
+
+
+def prev_month_first_day(monthlike):
+    """ Return first date of previous month
+    :param monthlike: date-like representation with precision to month
+    :return: pd.Timestamp
+    """
+    month = datelike_to_timestamp(monthlike)
+    return month.replace(day=1) - pd.DateOffset(months=1)
+
+
+def forward_6_months(datelike):
+    """ Return date that is 6 months forward
+        NOTE: an end of month date will return the last day of the month that is 6 months forward
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :return: pd.Timestamp
+    """
+    date = datelike_to_timestamp(datelike)
+    next_date = date + DAY_OFFSET
+    if date.month != next_date.month:
+        # Date is end-of-month; handle end of month differences
+        return next_date + pd.DateOffset(months=6) - DAY_OFFSET
+    else:
+        return date + pd.DateOffset(months=6)
+
+
+def backward_6_months(datelike):
+    """ Return date that is 6 months backward
+        NOTE: an end of month date will return the last day of the month that is 6 months backward
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :return: pd.Timestamp
+    """
+    date = datelike_to_timestamp(datelike)
+    next_date = date + DAY_OFFSET
+    if date.month != next_date.month:
+        # Date is end-of-month; handle end of month differences
+        return next_date - pd.DateOffset(months=6) - DAY_OFFSET
+    else:
+        return date - pd.DateOffset(months=6)
+
 
 def next_weekday(datelike, weekday_number, weekday_return_self=False):
     """ Return date of the next day-of-week specified
@@ -148,7 +260,7 @@ def next_quarterly_month(datelike, quarter_return_self=False):
         # Day-of-month past end of new year-month
         change_month_first = date.replace(day=1, month=next_quarter_month,
                                           year=next_quarter_month_year)
-        change_month_date = last_day_of_month(change_month_first)
+        change_month_date = n_before_month_last_day(change_month_first)
     return change_month_date
 
 
@@ -178,26 +290,8 @@ def prev_quarterly_month(datelike, quarter_return_self=False):
         # Day-of-month past end of new year-month
         change_month_first = date.replace(day=1, month=prev_quarter_month,
                                           year=prev_quarter_month_year)
-        change_month_date = last_day_of_month(change_month_first)
+        change_month_date = n_before_month_last_day(change_month_first)
     return change_month_date
-
-
-def next_month_first_day(monthlike):
-    """ Return first date of next month
-    :param monthlike: date-like representation with precision to month
-    :return: pd.Timestamp
-    """
-    month = datelike_to_timestamp(monthlike)
-    return month.replace(day=1) + pd.DateOffset(months=1)
-
-
-def prev_month_first_day(monthlike):
-    """ Return first date of previous month
-    :param monthlike: date-like representation with precision to month
-    :return: pd.Timestamp
-    """
-    month = datelike_to_timestamp(monthlike)
-    return month.replace(day=1) - pd.DateOffset(months=1)
 
 
 ###############################################################################
@@ -257,7 +351,7 @@ def vix_thirty_days_before(expiry_func=third_friday):
         date_in_month = datelike_to_timestamp(datelike_in_month)
         date_in_next_month = date_in_month + pd.DateOffset(months=1)
         base_expiry = expiry_func(date_in_next_month)
-        base_minus_thirty = base_expiry - 30*DAY_OFFSET
+        base_minus_thirty = base_expiry - THIRTY_DAYS
         # Ensure date is not a holiday - shift to date prior if needed
         # To our knowledge, the singular precedent is VIX Weeklys on 2018-12-05 - George
         # H. W. Bush's Day of Mourning fell on a Wednesday and shifted expiration to Tuesday
