@@ -2,82 +2,11 @@ import pandas as pd
 import numpy as np
 from os import listdir
 from scipy.optimize import root
-from cboe_exchange_holidays_v3 import datelike_to_timestamp
-from options_futures_expirations_v3 import BUSDAY_OFFSET
+from cboe_exchange_holidays_v3 import datelike_to_timestamp, strip_to_date
+from options_futures_expirations_v3 import BUSDAY_OFFSET, ONE_YEAR, \
+    forward_6_months, change_year, is_end_of_month, n_before_month_last_day
 
-DAY_OFFSET = pd.DateOffset(days=1)
-ONE_YEAR = pd.Timedelta(days=365)
 NOTESBONDS_UNIVERSE_HISTORY_FILEDIR = 'P:/ProductDevelopment/Database/Production/Treasury_VIX/Files/'
-
-
-def is_end_of_month(datelike):
-    """ Return True iff date is last date in month
-    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
-    :return: Boolean
-    """
-    date = datelike_to_timestamp(datelike)
-    next_date = date + DAY_OFFSET
-    return True if date.month != next_date.month else False
-
-
-def change_month(datelike, new_month):
-    """ Return date with month changed to specified month
-        NOTE: an end of month date will return the last day of the new month
-    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
-    :param new_month: month to change the given date's month to
-    :return: pd.Timestamp
-    """
-    date = datelike_to_timestamp(datelike)
-    next_date = date + DAY_OFFSET
-    new_month_first = date.replace(day=1, month=new_month)
-    if date.month != next_date.month or date.day > new_month_first.days_in_month:
-        # Either 1) date is end-of-month; use last day of new month too
-        #        2) date's day-of-month doesn't exist in new month; use last day of new month
-        return new_month_first + pd.DateOffset(months=1) - DAY_OFFSET
-    else:
-        return date.replace(month=new_month)
-
-
-def forward_6_months(datelike):
-    """ Return date that is 6 months forward
-        NOTE: an end of month date will return the last day of the month that is 6 months forward
-    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
-    :return: pd.Timestamp
-    """
-    date = datelike_to_timestamp(datelike)
-    next_date = date + DAY_OFFSET
-    if date.month != next_date.month:
-        # Date is end-of-month; handle end of month differences
-        return next_date + pd.DateOffset(months=6) - DAY_OFFSET
-    else:
-        return date + pd.DateOffset(months=6)
-
-
-def is_leap_year(year):
-    """ Return True iff year is a leap year """
-    if year % 4 == 0:
-        if year % 100 != 0 or year % 400 == 0:
-            return True
-    return False
-
-
-def change_year(datelike, new_year):
-    """ Return date with year changed to specified year
-        NOTE: last day of February will return last day of February in the specified year
-    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
-    :param new_year: year to change given date's year to
-    :return: pd.Timestamp
-    """
-    if pd.isna(new_year):
-        return pd.NaT   # Necessary because real Timestamps cannot have year replaced with np.NaN
-    date = datelike_to_timestamp(datelike)
-    # Handle end of February, which may change depending on year
-    if date.month == 2 and date.day == 28 and is_leap_year(new_year):
-        return date.replace(year=new_year, day=29)  # 28->29
-    elif date.month == 2 and date.day == 29 and not is_leap_year(new_year):
-        return date.replace(year=new_year, day=28)  # 29->28
-    else:
-        return date.replace(year=new_year)
 
 
 def get_coupon_status(maturity_datelike, settle_datelike):
@@ -87,8 +16,8 @@ def get_coupon_status(maturity_datelike, settle_datelike):
     :return: (previous coupon date, next coupon date,
               number of days in current coupon period, number of days since last coupon)
     """
-    maturity_date = datelike_to_timestamp(maturity_datelike)
-    settle_date = datelike_to_timestamp(settle_datelike)
+    maturity_date = strip_to_date(datelike_to_timestamp(maturity_datelike))
+    settle_date = strip_to_date(datelike_to_timestamp(settle_datelike))
     year = settle_date.year
     maturity_date_6_months = forward_6_months(maturity_date)
     # Create timeline of coupons close to settle date
@@ -142,9 +71,8 @@ def get_remaining_coupon_periods(maturity_datelike=None, settle_datelike=None,
         if maturity_datelike is None or settle_datelike is None:
             raise ValueError("Input parameter configuration used incorrectly.")
         # Use settlement and maturity to calculate number of remaining coupons and remaining first period
-        maturity_date = datelike_to_timestamp(maturity_datelike)
-        settle_date = datelike_to_timestamp(settle_datelike)
-        prev_coupon_date, _, days_in_period, days_since_coupon = get_coupon_status(maturity_date, settle_date)
+        maturity_date = strip_to_date(datelike_to_timestamp(maturity_datelike))
+        prev_coupon_date, _, days_in_period, days_since_coupon = get_coupon_status(maturity_date, settle_datelike)
         n_remaining_coupons = round(
             (maturity_date - prev_coupon_date) / ONE_YEAR * 2)  # Number of semiannual coupons remaining
         remaining_first_period = 1 - days_since_coupon/days_in_period
@@ -274,13 +202,13 @@ def get_last_delivery_date(delivery_monthlike, tenor):
     :param tenor: 2, 3, 5, 10, 30, etc. to indicate 2-, 3-, 5-, 10-, 30-year Treasury futures
     :return: pd.Timestamp
     """
-    delivery_month_first = datelike_to_timestamp(delivery_monthlike).normalize().replace(day=1)
+    month_last_busday = strip_to_date(n_before_month_last_day(delivery_monthlike, use_busdays=True))
     if tenor in [10, 30]:
         # Last trading day of month
-        last_delivery_date = delivery_month_first + pd.DateOffset(months=1) - BUSDAY_OFFSET
+        last_delivery_date = month_last_busday
     else:
         # 3rd trading day of next month
-        last_delivery_date = delivery_month_first + pd.DateOffset(months=1) - DAY_OFFSET + 3*BUSDAY_OFFSET
+        last_delivery_date = month_last_busday + 3*BUSDAY_OFFSET
     return last_delivery_date
 
 
@@ -300,7 +228,7 @@ def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike
     :return: implied repo rate in percent
     """
     maturity_date = datelike_to_timestamp(maturity_datelike)
-    settle_date = datelike_to_timestamp(settle_datelike)
+    settle_date = strip_to_date(datelike_to_timestamp(settle_datelike))
     if delivery_datelike is None:
         # Derive from maturity month and tenor
         delivery_date = get_last_delivery_date(delivery_monthlike, tenor)
@@ -414,8 +342,9 @@ def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor, 
     :return: numerical conversion factor
     """
     coupon = coupon / 100
-    delivery_month_first = datelike_to_timestamp(delivery_monthlike).normalize().replace(day=1)
-    whole_years, whole_months, _ = get_whole_year_month_day_difference(delivery_month_first, maturity_datelike)
+    delivery_month_first = strip_to_date(datelike_to_timestamp(delivery_monthlike)).replace(day=1)
+    maturity_date = strip_to_date(datelike_to_timestamp(maturity_datelike))
+    whole_years, whole_months, _ = get_whole_year_month_day_difference(delivery_month_first, maturity_date)
     # Officially defined calculation
     n = whole_years
     z = whole_months//3*3 if tenor in [10, 30] else whole_months  # Round down to quarter for 10-, 30-year
@@ -489,7 +418,7 @@ def get_delivery_basket(delivery_monthlike, tenor, loaded_universe_history=None,
         as_of_date = pd.Timestamp('now')
     if loaded_universe_history is None:
         loaded_universe_history = load_notesbonds_universe_history()
-    delivery_month_first = datelike_to_timestamp(delivery_monthlike).normalize().replace(day=1)
+    delivery_month_first = strip_to_date(datelike_to_timestamp(delivery_monthlike)).replace(day=1)
     last_delivery_date = get_last_delivery_date(delivery_month_first, tenor)
     available_universe = (loaded_universe_history[(loaded_universe_history['maturityDate'] >= delivery_month_first)
                                                   & (loaded_universe_history['issueDate'] <= last_delivery_date)
@@ -673,7 +602,7 @@ if __name__ == '__main__':
             print("****FAILED****")
 
     print("\nExample 7: Delivery Baskets\n")
-    delivery_baskets_df = pd.read_csv('P:/PrdDevSharedDB/CME Data/TYVIX Basis Point Vol Documentation/Deliverables/'
+    delivery_baskets_df = pd.read_csv('P:/PrdDevSharedDB/Treasury VIX/TYVIX Basis Point Vol Documentation/Deliverables/'
                                       'delivery_baskets_2020HMU_2020-01-09.csv')
     test_universe_history = load_notesbonds_universe_history()
     for test_tenor in [('TU', 2), ('FV', 5), ('TY', 10), ('US', 30)]:
