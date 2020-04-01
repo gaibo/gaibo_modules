@@ -77,31 +77,33 @@ class FICCGSDBusinessCalendar(BaseTradingCalendar):
         self.rules.extend([USColumbusDay, USVeteransDay, GHWBushDayofMourning])
 
 
-def datelike_to_timestamp(datelike):
+def datelike_to_timestamp(datelike, strip=False):
     """ Utility: Convert date-like representations to pd.Timestamps, for consistency
         NOTE: if datelike must be converted, it is first changed to string to avoid becoming nanoseconds
     :param datelike: date-like representation, e.g. ['2019-01-03', '2020-02-25'], datetime object, etc.
+    :param strip: set True to strip datelike of time and leave only date (.normalize())
     :return: pd.Timestamp version of dates
     """
     if isinstance(datelike, pd.Series) or isinstance(datelike, np.ndarray):
         # Optimized multi-element input
         if datelike.dtype == np.dtype('datetime64[ns]'):
-            return datelike
+            ts_or_ts_series = datelike
         else:
-            return pd.to_datetime(datelike.astype(str))
+            ts_or_ts_series = pd.to_datetime(datelike.astype(str))
     elif isinstance(datelike, pd.Timestamp):
         # Optimized single-element input
-        return datelike
+        ts_or_ts_series = datelike
     elif isinstance(datelike, str):
         # Semi-optimized single-element input
-        return pd.to_datetime(datelike)
+        ts_or_ts_series = pd.to_datetime(datelike)
     else:
         try:
             # Generic multi-element (iterable) input
-            return pd.to_datetime(list(map(str, datelike)))
+            ts_or_ts_series = pd.to_datetime(list(map(str, datelike)))
         except TypeError:
             # Generic single-element input
-            return pd.to_datetime(str(datelike))
+            ts_or_ts_series = pd.to_datetime(str(datelike))
+    return ts_or_ts_series if not strip else strip_to_date(ts_or_ts_series)
 
 
 def timelike_to_timedelta(timelike):
