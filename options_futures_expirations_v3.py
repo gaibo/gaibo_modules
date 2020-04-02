@@ -18,6 +18,30 @@ THIRTY_DAYS = pd.Timedelta(days=30)
 ###############################################################################
 # Utilities
 
+def month_to_quarter_shifter(month, shift=-1):
+    """ Obtain any quarterly month given an input month using flexible shifting
+        Flexibility of this function lies in experimenting with the shift parameter, e.g.:
+        - shift=-1 (default) returns [3,  3,  3,  6,  6,  6,  9,  9,  9, 12, 12, 12]
+        - shift=0 returns            [3,  3,  6,  6,  6,  9,  9,  9, 12, 12, 12,  3]
+        - shift=2 returns            [6,  6,  6,  9,  9,  9, 12, 12, 12,  3,  3,  3]
+    :param month: input month number(s); arrays above are returned when np.arange(1, 13) is inputted
+    :param shift: see explanation above
+    :return: "shifted" quarterly month number(s)
+    """
+    return ((month+shift) // 3 % 4 + 1) * 3
+
+
+def undl_fut_quarter_month(opt_contr_month):
+    """ Find the Treasury future month underlying the Treasury option month
+    :param opt_contr_month: numerical month of the options month code;
+                            note that for example, September options (U) actually expire
+                            in August, but here would be referred to as 9 instead of 8
+    :return: numerical month of the quarterly futures (can be used with EXPMONTH_CODES_DICT)
+    """
+    # For actual month of expiration date, use: month_to_quarter_shifter(opt_exp_month, shift=0)
+    return (((opt_contr_month-1) // 3) + 1) * 3     # month_to_quarter_shifter(opt_contr_month, shift=-1)
+
+
 def get_prev_business_day(datelike):
     """ Return previous business day using CustomBusinessDay with Cboe trading calendar
     :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
@@ -67,12 +91,14 @@ def is_end_of_month(datelike):
 
 
 def change_month(datelike, new_month):
-    """ Return date with month changed to specified month
+    """ Return date with month changed, accounting for end-of-month
         NOTE: an end of month date will return the last day of the new month
     :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
     :param new_month: month to change the given date's month to
     :return: pd.Timestamp
     """
+    if pd.isna(new_month):
+        return pd.NaT   # Necessary because real Timestamps cannot have month replaced with np.NaN
     date = datelike_to_timestamp(datelike)
     new_month_first = date.replace(day=1, month=new_month)
     if is_end_of_month(date) or date.day > new_month_first.days_in_month:
@@ -92,7 +118,7 @@ def is_leap_year(year):
 
 
 def change_year(datelike, new_year):
-    """ Return date with year changed to specified year
+    """ Return date with year changed, accounting for end-of-month
         NOTE: last day of February will return last day of February in the specified year
     :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
     :param new_year: year to change given date's year to
@@ -108,6 +134,20 @@ def change_year(datelike, new_year):
         return date.replace(year=new_year, day=28)  # 29->28
     else:
         return date.replace(year=new_year)
+
+
+def change_year_month(datelike, new_year, new_month):
+    """ Return date with year and month changed, accounting for end-of-month
+        NOTE: equivalent to change_month(change_year(datelike, new_year), new_month)
+    :param datelike: date-like representation, e.g. '2019-01-03', datetime object, etc.
+    :param new_year: year to change given date's year to
+    :param new_month: month to change the given date's month to
+    :return: pd.Timestamp
+    """
+    # Change year first to avoid leap-year extreme edge case
+    # e.g. ('2019-07-28', 2020, 2) -> ('2020-07-28', 2)    -> '2020-02-28' (not EOM)
+    # NOT                          -> ('2019-02-28', 2020) -> '2020-02-29' (EOM)
+    return change_month(change_year(datelike, new_year), new_month)
 
 
 def ensure_bus_day(datelike, shift_to='prev'):
@@ -246,22 +286,14 @@ def next_quarterly_month(datelike, quarter_return_self=False):
     date = datelike_to_timestamp(datelike)
     date_month = date.month
     if quarter_return_self:
-        next_quarter_month = (((date_month - 1) // 3) + 1) * 3
+        next_quarter_month = month_to_quarter_shifter(date_month, shift=-1)
     else:
-        next_quarter_month = (date_month // 3 % 4 + 1) * 3  # This expression is super flexible
+        next_quarter_month = month_to_quarter_shifter(date_month, shift=0)
     if next_quarter_month < date_month:
-        next_quarter_month_year = date.year + 1
+        # Increment year
+        return change_year_month(date, date.year+1, next_quarter_month)
     else:
-        next_quarter_month_year = date.year
-    try:
-        change_month_date = date.replace(month=next_quarter_month,
-                                         year=next_quarter_month_year)
-    except ValueError:
-        # Day-of-month past end of new year-month
-        change_month_first = date.replace(day=1, month=next_quarter_month,
-                                          year=next_quarter_month_year)
-        change_month_date = n_before_month_last_day(change_month_first)
-    return change_month_date
+        return change_month(date, next_quarter_month)
 
 
 def prev_quarterly_month(datelike, quarter_return_self=False):
@@ -276,22 +308,14 @@ def prev_quarterly_month(datelike, quarter_return_self=False):
     date = datelike_to_timestamp(datelike)
     date_month = date.month
     if quarter_return_self:
-        prev_quarter_month = ((date_month-3) // 3 % 4 + 1) * 3
+        prev_quarter_month = month_to_quarter_shifter(date_month, shift=-3)
     else:
-        prev_quarter_month = ((date_month-4) // 3 % 4 + 1) * 3
+        prev_quarter_month = month_to_quarter_shifter(date_month, shift=-4)
     if prev_quarter_month > date_month:
-        prev_quarter_month_year = date.year - 1
+        # Decrement year
+        return change_year_month(date, date.year-1, prev_quarter_month)
     else:
-        prev_quarter_month_year = date.year
-    try:
-        change_month_date = date.replace(month=prev_quarter_month,
-                                         year=prev_quarter_month_year)
-    except ValueError:
-        # Day-of-month past end of new year-month
-        change_month_first = date.replace(day=1, month=prev_quarter_month,
-                                          year=prev_quarter_month_year)
-        change_month_date = n_before_month_last_day(change_month_first)
-    return change_month_date
+        return change_month(date, prev_quarter_month)
 
 
 ###############################################################################

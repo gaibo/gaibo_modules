@@ -1,6 +1,7 @@
 import pandas as pd
 import pdblp
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
+from options_futures_expirations_v3 import undl_fut_quarter_month
 
 BLOOMBERG_PULLS_FILEDIR = 'P:/PrdDevSharedDB/BBG Pull Scripts/'
 TREASURY_FUT_CSV_FILENAME = 'treasury_futures_pull.csv'
@@ -11,30 +12,6 @@ EXPMONTH_CODE_DICT = {1: 'F', 2: 'G', 3: 'H', 4: 'J', 5: 'K', 6: 'M',
 CODE_EXPMONTH_DICT = {'F': 1, 'G': 2, 'H': 3, 'J': 4, 'K': 5, 'M': 6,
                       'N': 7, 'Q': 8, 'U': 9, 'V': 10, 'X': 11, 'Z': 12}
 QUARTER_CODE_LIST = ['H', 'M', 'U', 'Z']
-
-
-def month_to_quarter_shifter(month, shift=-1):
-    """ Obtain any quarterly month given an input month using flexible shifting
-        Flexibility of this function lies in experimenting with the shift parameter, e.g.:
-        - shift=-1 (default) returns [3,  3,  3,  6,  6,  6,  9,  9,  9, 12, 12, 12]
-        - shift=0 returns            [3,  3,  6,  6,  6,  9,  9,  9, 12, 12, 12,  3]
-        - shift=2 returns            [6,  6,  6,  9,  9,  9, 12, 12, 12,  3,  3,  3]
-    :param month: input month number(s); arrays above are returned when np.arange(1, 13) is inputted
-    :param shift: see explanation above
-    :return: "shifted" quarterly month number(s)
-    """
-    return ((month+shift) // 3 % 4 + 1) * 3
-
-
-def undl_fut_quarter_month(opt_contr_month):
-    """ Find the Treasury future month underlying the Treasury option month
-    :param opt_contr_month: numerical month of the options month code;
-                            note that for example, September options (U) actually expire
-                            in August, but here would be referred to as 9 instead of 8
-    :return: numerical month of the quarterly futures (can be used with EXPMONTH_CODES_DICT)
-    """
-    # For actual month of expiration date, use: month_to_quarter_shifter(opt_exp_month, shift=0)
-    return (((opt_contr_month-1) // 3) + 1) * 3     # month_to_quarter_shifter(opt_contr_month, shift=-1)
 
 
 def fut_ticker(tenor, expiry_monthlike, expiry_type='options', use_single_digit_year=False, no_comdty=False):
