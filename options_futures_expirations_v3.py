@@ -144,10 +144,22 @@ def change_year_month(datelike, new_year, new_month):
     :param new_month: month to change the given date's month to
     :return: pd.Timestamp
     """
-    # Change year first to avoid leap-year extreme edge case
-    # e.g. ('2019-07-28', 2020, 2) -> ('2020-07-28', 2)    -> '2020-02-28' (not EOM)
-    # NOT                          -> ('2019-02-28', 2020) -> '2020-02-29' (EOM)
-    return change_month(change_year(datelike, new_year), new_month)
+    date = datelike_to_timestamp(datelike)
+    # If you think the following is overkill, you are probably right.
+    # But the goal is to match end-of-monthness as perfectly as possible.
+    if date.month == 2 and date.day == 28 and is_leap_year(date.year):
+        # This is the only case in which changing the year first would cause the
+        # creation of an artificial end-of-month, which may not be desired.
+        # Change month first to avoid this less likely leap-year edge case
+        # e.g. ('2020-02-28', 2019, 7) -> ('2020-07-28', 2019) -> '2019-07-28' (not EOM)
+        # NOT                          -> ('2019-02-28', 7)    -> '2019-07-31' (EOM)
+        return change_year(change_month(datelike, new_month), new_year)
+    else:
+        # In all other cases, changing the year first is better as it adjusts for leap year.
+        # Change year first to avoid more likely leap-year edge cases
+        # e.g. ('2019-07-28', 2020, 2) -> ('2020-07-28', 2)    -> '2020-02-28' (not EOM)
+        # NOT                          -> ('2019-02-28', 2020) -> '2020-02-29' (EOM)
+        return change_month(change_year(datelike, new_year), new_month)
 
 
 def ensure_bus_day(datelike, shift_to='prev'):
