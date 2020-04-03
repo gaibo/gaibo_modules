@@ -201,7 +201,7 @@ INTERPOLATION_FUNCTION_DISPATCH = {'natural cubic spline': natural_cubic_spline_
 
 
 def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
-             interp_method='natural cubic spline', return_rate_type='log(1+APY)', conditional_neg_filter=True):
+             interp_method='natural cubic spline', return_rate_type='log(1+APY)'):
     """ Get a forward-filled and interpolated rate (BEY, APY, zero, 1+APY, etc.)
         NOTE: if this function is to be used multiple times, please provide optional parameter loaded_rates
               with the source DataFrame loaded through load_treasury_rates for speed/efficiency purposes
@@ -215,8 +215,6 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
     :param time_in_years: set True if time_to_maturity is in years instead of days
     :param interp_method: method of rates interpolation (e.g. 'natural cubic spline', 'linear')
     :param return_rate_type: type of rate to return; see RATE_TYPE_FUNCTION_DISPATCH for documentation
-    :param conditional_neg_filter: set True to only allow interpolation/extrapolation of negative rates when a negative
-                                   rate already exists in the reference set (otherwise return 0)
     :return: numerical rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%), 1+rate format (e.g. 1.0243 is 2.43%;
              1.0017 is 0.17%), or other based on return_rate_type
     """
@@ -246,11 +244,6 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
         converted_rate = convert_func(treasury_rate, time_to_maturity)
     else:
         converted_rate = convert_func(treasury_rate)
-    # Apply conditional negative filter
-    if converted_rate < 0 and conditional_neg_filter:
-        is_negative_rates = (day_rates_rates < 0).any()
-        if not is_negative_rates:
-            return 0
     return converted_rate
 
 
