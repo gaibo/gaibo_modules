@@ -8,7 +8,7 @@ RATES_FILEDIR = 'P:/PrdDevSharedDB/Treasury Rates/'
 YIELDS_CSV_FILENAME = 'treasury_cmt_yields.csv'
 YIELDS_XML_URL = 'https://data.treasury.gov/feed.svc/DailyTreasuryYieldCurveRateData'
 YIELDS_FIELDS = ['1 Mo', '2 Mo', '3 Mo', '6 Mo', '1 Yr', '2 Yr', '3 Yr', '5 Yr', '7 Yr', '10 Yr', '20 Yr', '30 Yr']
-MATURITY_NAME_TO_DAYS_DICT = {'1 Mo': 30, '2 Mo': 61, '3 Mo': 91, '6 Mo': 182,
+MATURITY_NAME_TO_DAYS_DICT = {'1 Mo': 30, '2 Mo': 60, '3 Mo': 91, '6 Mo': 182,
                               '1 Yr': 365, '2 Yr': 730, '3 Yr': 1095, '5 Yr': 1825,
                               '7 Yr': 2555, '10 Yr': 3650, '20 Yr': 7300, '30 Yr': 10950}
 RATE_TO_PERCENT = 100
@@ -200,13 +200,118 @@ INTERPOLATION_FUNCTION_DISPATCH = {'natural cubic spline': natural_cubic_spline_
                                    'linear': linear_interpolation}
 
 
+def extrapolation_bounds(rates_time_to_maturity, rates_rates, time_to_maturity):
+    """ Compute lower and upper bounds on cubic spline extrapolation period, i.e.
+        period left of shortest available maturity (usually the 1-month maturity)
+    :param rates_time_to_maturity: days to maturity of the rates term structure
+    :param rates_rates: rates of the rates term structure (corresponds to rates_time_to_maturity)
+    :param time_to_maturity: desired days to maturity; can be multi-element array
+    :return: (bound_lower, bound_upper), where each bound's dimensions match time_to_maturity
+    """
+    if len(rates_time_to_maturity) < 2 or len(rates_rates) < 2:
+        raise ValueError("rates_time_to_maturity and rates_rates must correspond and have length 2 or more.")
+    rates_time_to_maturity = np.array(rates_time_to_maturity)
+    rates_rates = np.array(rates_rates)
+    time_to_maturity = np.array(time_to_maturity)
+    # Find reference data points, and derive the slope-defined bounds:
+    # 1) shortest maturity (t_1, cmt_1)
+    t_1, cmt_1 = rates_time_to_maturity[0], rates_rates[0]
+    next_rates_time_to_maturity = rates_time_to_maturity[1:]
+    next_rates_rates = rates_rates[1:]
+    # 2) next shortest maturity equal or above shortest (t_above, cmt_above)
+    idxs_above = next_rates_rates >= cmt_1  # Can't use np.argmax() because equals sign
+    cmts_above = next_rates_rates[idxs_above]
+    if len(cmts_above) == 0:
+        # No such point, i.e. term structure completely inverted (strictly decreasing)
+        m_lower = 0     # Backup lower-bound slope of 0
+    else:
+        t_above, cmt_above = next_rates_time_to_maturity[idxs_above][0], cmts_above[0]
+        m_lower = (cmt_above - cmt_1) / (t_above - t_1)  # >=0 slope
+    b_lower = cmt_1 - m_lower*t_1
+    bound_lower = m_lower*time_to_maturity + b_lower
+    # 3) next shortest maturity equal or below shortest (t_below, cmt_below)
+    idxs_below = next_rates_rates <= cmt_1  # Can't use np.argmax() because equals sign
+    cmts_below = next_rates_rates[idxs_below]
+    if len(cmts_below) == 0:
+        # No such point, i.e. term structure has no inversions (strictly increasing)
+        m_upper = 0     # Backup upper-bound slope of 0
+    else:
+        t_below, cmt_below = next_rates_time_to_maturity[idxs_below][0], cmts_below[0]
+        m_upper = (cmt_below - cmt_1) / (t_below - t_1)  # <=0 slope
+    b_upper = cmt_1 - m_upper*t_1
+    bound_upper = m_upper*time_to_maturity + b_upper
+    return bound_lower, bound_upper
+
+
+def interpolation_bounds(rates_time_to_maturity, rates_rates, time_to_maturity):
+    """ Compute lower and upper bounds on cubic spline interpolation period, i.e.
+        period right of shortest available maturity (usually the 1-month maturity)
+    :param rates_time_to_maturity: days to maturity of the rates term structure
+    :param rates_rates: rates of the rates term structure (corresponds to rates_time_to_maturity)
+    :param time_to_maturity: desired days to maturity; can be multi-element array
+    :return: (bound_lower, bound_upper), where each bound's dimensions match time_to_maturity
+    """
+    if len(rates_time_to_maturity) < 2 or len(rates_rates) < 2:
+        raise ValueError("rates_time_to_maturity and rates_rates must correspond and have length 2 or more.")
+    rates_time_to_maturity = np.array(rates_time_to_maturity)
+    rates_rates = np.array(rates_rates)
+    # Example of how the following np.searchsorted() is used:
+    # let rates_time_to_maturity = [30, 60, 91, 182]; time_to_maturity = [31, 32, ..., 59, 60, 61, ..., 90, 91, 92];
+    # then idxs_right_bound = [1, 1, ..., 1, 1, 2, ..., 2, 2, 3]; idxs_left_bound = [0, 0, ..., 0, 0, 1, ..., 1, 1, 2]
+    # i.e. the 60 and 91 exact maturity indexes are thus included in the idxs_right_bound
+    idxs_right_bound = np.searchsorted(rates_time_to_maturity, time_to_maturity, side='left')   # Right-inclusive
+    idxs_left_bound = idxs_right_bound - 1
+    if (idxs_left_bound < 0).any():
+        raise ValueError("time_to_maturity contains extrapolation period day(s); "
+                         "day(s) must be greater than shortest maturity in rates_time_to_maturity.")
+    bound_lower = np.minimum(rates_rates[idxs_left_bound], rates_rates[idxs_right_bound])
+    bound_upper = np.maximum(rates_rates[idxs_left_bound], rates_rates[idxs_right_bound])
+    # Match bounds for time_to_maturity dates that have exact maturities and do not need bounding
+    # Recall from earlier example that exact maturity indexes are included in idxs_right_bound
+    idxs_right_bound_alt = np.searchsorted(rates_time_to_maturity, time_to_maturity, side='right')  # Left-inclusive
+    idxs_exact_maturity = idxs_right_bound != idxs_right_bound_alt  # Take advantage of mismatch
+    exact_maturity_rates = rates_rates[idxs_right_bound][idxs_exact_maturity]
+    bound_lower[idxs_exact_maturity] = exact_maturity_rates
+    bound_upper[idxs_exact_maturity] = exact_maturity_rates
+    return bound_lower, bound_upper
+
+
+def lower_upper_bounds(rates_time_to_maturity, rates_rates, time_to_maturity):
+    """ Compute lower and upper bounds on cubic spline interpolation for any period
+        NOTE: generalized version combining extrapolation_bounds() and interpolation_bounds()
+    :param rates_time_to_maturity: days to maturity of the rates term structure
+    :param rates_rates: rates of the rates term structure (corresponds to rates_time_to_maturity)
+    :param time_to_maturity: desired days to maturity; can be multi-element array
+    :return: (bound_lower, bound_upper), where each bound's dimensions match time_to_maturity
+    """
+    time_to_maturity = np.array(time_to_maturity)
+    # Compute extrapolation and interpolation periods separately
+    idxs_extrap = time_to_maturity <= rates_time_to_maturity[0]
+    idxs_interp = time_to_maturity > rates_time_to_maturity[0]
+    extrap_lower, extrap_upper = extrapolation_bounds(rates_time_to_maturity, rates_rates,
+                                                      time_to_maturity[idxs_extrap])
+    interp_lower, interp_upper = interpolation_bounds(rates_time_to_maturity, rates_rates,
+                                                      time_to_maturity[idxs_interp])
+    # Stitch together separate periods' results
+    bound_lower = np.full_like(time_to_maturity, np.NaN, dtype=float)
+    bound_lower[idxs_extrap] = extrap_lower
+    bound_lower[idxs_interp] = interp_lower
+    bound_upper = np.full_like(time_to_maturity, np.NaN, dtype=float)
+    bound_upper[idxs_extrap] = extrap_upper
+    bound_upper[idxs_interp] = interp_upper
+    return bound_lower, bound_upper
+
+
 def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
-             interp_method='natural cubic spline', return_rate_type='log(1+APY)'):
-    """ Get a forward-filled and interpolated rate (BEY, APY, zero, 1+APY, etc.)
+             interp_method='natural cubic spline', return_rate_type='log(1+APY)',
+             drop_2_mo=False, ffill_by_1=False, use_spline_bounds=True):
+    """ Get a forward-filled (optional) and interpolated rate (BEY, APY, zero, 1+APY, etc.)
         NOTE: if this function is to be used multiple times, please provide optional parameter loaded_rates
               with the source DataFrame loaded through load_treasury_rates for speed/efficiency purposes
         NOTE: 1 Mo started 2001-07-31; 2 Mo started 2018-10-16;
               20 Yr discontinued 1987-01-01 through 1993-09-30; 30 Yr discontinued 2002-02-19 through 2006-02-08
+        NOTE: Columbus Day 2010 (2010-10-11) is inexplicably included on treasury.gov as all NaNs;
+              this is an oddity of the dataset as no other federal holiday is included - it must be dropped
         NOTE: maximum forward-fill is restricted to 1 day, as that covers regular holidays
         NOTE: no vectorized input and output implemented
     :param datelike: date on which to obtain rate (can be string or object)
@@ -215,14 +320,18 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
     :param time_in_years: set True if time_to_maturity is in years instead of days
     :param interp_method: method of rates interpolation (e.g. 'natural cubic spline', 'linear')
     :param return_rate_type: type of rate to return; see RATE_TYPE_FUNCTION_DISPATCH for documentation
+    :param drop_2_mo: set True to NOT use the 2 Mo maturity, for legacy purposes
+    :param ffill_by_1: set True to forward-fill NaN rates from previous day (limit one day prior);
+                       not crucial but increases consistency of number of maturities used in spline,
+                       paving over inexplicable days on which some but not all of the maturities’ yields are missing
+    :param use_spline_bounds: set True to use specially defined linear upper and lower bounds to control spline behavior
     :return: numerical rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%), 1+rate format (e.g. 1.0243 is 2.43%;
              1.0017 is 0.17%), or other based on return_rate_type
     """
     date = datelike_to_timestamp(datelike)
     if time_in_years:
         time_to_maturity *= 365     # Convert to days
-    # Get date's available rates by
-    # 1) forward-filling from previous date and 2) dropping maturities that are not available
+    # Load CMT Treasury yields dataset
     if loaded_rates is None:
         loaded_rates = load_treasury_rates()    # Read from disk if not provided as parameter
         if date > loaded_rates.index[-1]:
@@ -232,18 +341,33 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
     else:
         if date > loaded_rates.index[-1]:
             raise ValueError(f"{datelike} rate not available in given loaded_rates.")
-    day_rates = loaded_rates.loc[:date].fillna(method='ffill', limit=1).iloc[-1].dropna()
-    day_rates_days = [MATURITY_NAME_TO_DAYS_DICT[name] for name in day_rates.index]
-    day_rates_rates = day_rates.values
-    # Interpolate CMT Treasury rates
+    loaded_rates = loaded_rates.dropna(how='all')   # Remove inconsistent all-NaN dates such as 2010-10-11
+    # Get date's available CMT Treasury yields by
+    # 1) forward-filling from previous date (optional)
+    # 2) dropping maturities that are not available (optional force-drop 2 Mo)
+    if ffill_by_1:
+        day_yields = loaded_rates.loc[:date].fillna(method='ffill', limit=1).iloc[-1]
+    else:
+        day_yields = loaded_rates.loc[:date].iloc[-1]
+    if drop_2_mo:
+        day_yields = day_yields.drop('2 Mo').dropna()
+    else:
+        day_yields = day_yields.dropna()
+    day_yields_days = [MATURITY_NAME_TO_DAYS_DICT[name] for name in day_yields.index]
+    day_yields_yields = day_yields.values
+    # Interpolate CMT Treasury yields to get yield for date
     interp_func = INTERPOLATION_FUNCTION_DISPATCH[interp_method]
-    treasury_rate = interp_func(day_rates_days, day_rates_rates, time_to_maturity)
-    # Convert interpolated Treasury rate into desired format
+    treasury_yield = interp_func(day_yields_days, day_yields_yields, time_to_maturity)
+    if use_spline_bounds:
+        # Ensure interpolated yield satisfies spline-control upper and lower bounds
+        lower_bound, upper_bound = lower_upper_bounds(day_yields_days, day_yields_yields, time_to_maturity)
+        treasury_yield = max(min(treasury_yield, upper_bound), lower_bound)     # Clamp
+    # Convert interpolated Treasury yield into desired format
     convert_func = RATE_TYPE_FUNCTION_DISPATCH[return_rate_type]
     if return_rate_type in ['rate_t', 'zero', '1+rate_t', '1+zero']:
-        converted_rate = convert_func(treasury_rate, time_to_maturity)
+        converted_rate = convert_func(treasury_yield, time_to_maturity)
     else:
-        converted_rate = convert_func(treasury_rate)
+        converted_rate = convert_func(treasury_yield)
     return converted_rate
 
 
