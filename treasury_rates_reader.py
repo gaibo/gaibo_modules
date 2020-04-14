@@ -22,10 +22,12 @@ def _parse_raw(raw):
         return round(float(raw), 2)
 
 
-def pull_treasury_rates(file_dir=RATES_FILEDIR, file_name=YIELDS_CSV_FILENAME):
+def pull_treasury_rates(file_dir=RATES_FILEDIR, file_name=YIELDS_CSV_FILENAME, drop_empty_dates=True):
     """ Pull CMT Treasury yield rates from treasury.gov and write them to disk
     :param file_dir: directory to write data file (overrides default directory)
     :param file_name: exact file name to write to file_dir (overrides default file name)
+    :param drop_empty_dates: set True to remove dates on which all rates are missing... AFTER writing
+                             and BEFORE returning DataFrame; file written is true to treasury.gov
     :return: pd.DataFrame with Treasury rates
     """
     # Pull XML feed, retrying until successful
@@ -49,17 +51,23 @@ def pull_treasury_rates(file_dir=RATES_FILEDIR, file_name=YIELDS_CSV_FILENAME):
         yields_dict[date] = yields
     yields_df = pd.DataFrame(yields_dict, index=YIELDS_FIELDS).T.sort_index()
     yields_df.index.name = 'Date'
-    yields_df.to_csv(file_dir + file_name)
+    yields_df.to_csv(file_dir + file_name)  # Export to disk
+    if drop_empty_dates:
+        yields_df = yields_df.dropna(how='all')
     return yields_df
 
 
-def load_treasury_rates(file_dir=RATES_FILEDIR, file_name=YIELDS_CSV_FILENAME):
+def load_treasury_rates(file_dir=RATES_FILEDIR, file_name=YIELDS_CSV_FILENAME, drop_empty_dates=True):
     """ Read CMT Treasury yield rates from disk and load them into DataFrame
     :param file_dir: directory to search for data file (overrides default directory)
     :param file_name: exact file name to load from file_dir (overrides default file name)
+    :param drop_empty_dates: set True to remove dates on which all rates are missing
     :return: pd.DataFrame with Treasury rates
     """
-    return pd.read_csv(file_dir + file_name, index_col='Date', parse_dates=True)
+    yields_df = pd.read_csv(file_dir + file_name, index_col='Date', parse_dates=True)
+    if drop_empty_dates:
+        yields_df = yields_df.dropna(how='all')
+    return yields_df
 
 
 def continuous_to_apy(cc_rate):
