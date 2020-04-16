@@ -162,7 +162,7 @@ RATE_TYPE_FUNCTION_DISPATCH = {'bey': identity,
 
 
 def natural_cubic_spline_interpolation(rates_time_to_maturity, rates_rates, time_to_maturity):
-    """ Interpolate rate using natural cubic spline
+    """ Interpolate rate using natural cubic spline; in extrapolation, extend linearly from edge point slope
     :param rates_time_to_maturity: days to maturity of the rates term structure
     :param rates_rates: rates of the rates term structure (corresponds to rates_time_to_maturity)
     :param time_to_maturity: desired days to maturity
@@ -312,26 +312,26 @@ def lower_upper_bounds(rates_time_to_maturity, rates_rates, time_to_maturity):
 
 def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
              interp_method='natural cubic spline', return_rate_type='log(1+APY)',
-             drop_2_mo=False, ffill_by_1=False, use_spline_bounds=True):
-    """ Get a forward-filled (optional) and interpolated rate (BEY, APY, zero, 1+APY, etc.)
+             drop_2_mo=False, use_spline_bounds=True):
+    """ Get an interpolated rate (BEY, APY, zero, 1+APY, etc.) based on CMT Treasury yields
         NOTE: if this function is to be used multiple times, please provide optional parameter loaded_rates
               with the source DataFrame loaded through load_treasury_rates for speed/efficiency purposes
-        NOTE: 1 Mo started 2001-07-31; 2 Mo started 2018-10-16;
-              20 Yr discontinued 1987-01-01 through 1993-09-30; 30 Yr discontinued 2002-02-19 through 2006-02-08
-        NOTE: Columbus Day 2010 (2010-10-11) is inexplicably included on treasury.gov as all NaNs;
-              this is an oddity of the dataset as no other federal holiday is included - it must be dropped
-        NOTE: maximum forward-fill is restricted to 1 day, as that covers regular holidays
+        NOTE: Properties of Treasury CMT Yield Curve Rates data as obtained through treasury.gov:
+              - 1 Mo started 2001-07-31; 2 Mo started 2018-10-16
+              - 20 Yr discontinued 1987-01-01 through 1993-09-30; 30 Yr discontinued 2002-02-19 through 2006-02-08
+              - Columbus Day 2010 (2010-10-11) is inexplicably included but filled with all null values;
+                this is an oddity of the dataset as no other federal holiday is included - it must be dropped
+              - 2008-12-10, 18, and 24 are the only 3 dates in history on which a maturity is truly missing;
+                there is no explanation for why 3 Mo yield is null on each of these 3 dates
+        NOTE: if a given date is unexpectedly missing any CMT values, the previous valid date's set is used
         NOTE: no vectorized input and output implemented
     :param datelike: date on which to obtain rate (can be string or object)
     :param time_to_maturity: number of days to maturity at which rate is interpolated
-    :param loaded_rates: DataFrame pre-loaded through load_treasury_rates or pull_treasury_rates
+    :param loaded_rates: DataFrame pre-loaded through load_treasury_rates() or pull_treasury_rates()
     :param time_in_years: set True if time_to_maturity is in years instead of days
-    :param interp_method: method of rates interpolation (e.g. 'natural cubic spline', 'linear')
+    :param interp_method: method of interpolation (e.g. 'natural cubic spline', 'linear')
     :param return_rate_type: type of rate to return; see RATE_TYPE_FUNCTION_DISPATCH for documentation
     :param drop_2_mo: set True to NOT use the 2 Mo maturity, for legacy purposes
-    :param ffill_by_1: set True to forward-fill NaN rates from previous day (limit one day prior);
-                       not crucial but increases consistency of number of maturities used in spline,
-                       paving over inexplicable days on which some but not all of the maturities’ yields are missing
     :param use_spline_bounds: set True to use specially defined linear upper and lower bounds to control spline behavior
     :return: numerical rate in percent (e.g. 2.43 is 2.43%; 0.17 is 0.17%), 1+rate format (e.g. 1.0243 is 2.43%;
              1.0017 is 0.17%), or other based on return_rate_type
@@ -350,20 +350,39 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
         if date > loaded_rates.index[-1]:
             raise ValueError(f"{datelike} rate not available in given loaded_rates.")
     loaded_rates = loaded_rates.dropna(how='all')   # Remove inconsistent all-NaN dates such as 2010-10-11
-    # Get date's available CMT Treasury yields by
-    # 1) forward-filling from previous date (optional)
-    # 2) dropping maturities that are not available (optional force-drop 2 Mo)
-    if ffill_by_1:
-        day_yields = loaded_rates.loc[:date].fillna(method='ffill', limit=1).iloc[-1]
+    # Drop all incomplete data dates, accounting for known missing maturities
+    if pd.Timestamp('1987-01-01') <= date <= pd.Timestamp('1993-09-30'):
+        # Known missing 1 Mo, 2 Mo, 20 Yr
+        complete_rates = loaded_rates.loc[:date].drop(['1 Mo', '2 Mo', '20 Yr'], axis=1).dropna(how='any')
+    elif pd.Timestamp('1993-09-30') < date < pd.Timestamp('2001-07-31'):
+        # Known missing 1 Mo, 2 Mo
+        complete_rates = loaded_rates.loc[:date].drop(['1 Mo', '2 Mo'], axis=1).dropna(how='any')
+    elif pd.Timestamp('2001-07-31') <= date < pd.Timestamp('2002-02-19'):
+        # Known missing 2 Mo
+        complete_rates = loaded_rates.loc[:date].drop(['2 Mo'], axis=1).dropna(how='any')
+    elif pd.Timestamp('2002-02-19') <= date <= pd.Timestamp('2006-02-08'):
+        # Known missing 2 Mo, 30 Yr
+        complete_rates = loaded_rates.loc[:date].drop(['2 Mo', '30 Yr'], axis=1).dropna(how='any')
+    elif pd.Timestamp('2006-02-08') < date < pd.Timestamp('2018-10-16'):
+        # Known missing 2 Mo
+        complete_rates = loaded_rates.loc[:date].drop(['2 Mo'], axis=1).dropna(how='any')
+    elif pd.Timestamp('2018-10-16') <= date:
+        # Known missing nothing
+        if drop_2_mo:
+            # Optional legacy compatibility: pretend 2 Mo is still missing
+            complete_rates = loaded_rates.loc[:date].drop(['2 Mo'], axis=1).dropna(how='any')
+        else:
+            complete_rates = loaded_rates.loc[:date].dropna(how='any')
     else:
-        day_yields = loaded_rates.loc[:date].iloc[-1]
-    if drop_2_mo:
-        day_yields = day_yields.drop('2 Mo').dropna()
-    else:
-        day_yields = day_yields.dropna()
+        # Unknown: use all available maturities of most recent date
+        unknown_last_rates = loaded_rates.loc[:date].iloc[-1]   # Specifically evaluate most recent date's data
+        unknown_missing_maturities = unknown_last_rates[unknown_last_rates.isna()].index
+        complete_rates = loaded_rates.loc[:date].drop(unknown_missing_maturities, axis=1)
+    # Get most recent complete data date's yields
+    day_yields = complete_rates.iloc[-1]    # All NaNs should have been accounted for in previous section
     day_yields_days = [MATURITY_NAME_TO_DAYS_DICT[name] for name in day_yields.index]
     day_yields_yields = day_yields.values
-    # Interpolate CMT Treasury yields to get yield for date
+    # Interpolate CMT yields to get yield for given time to maturity
     interp_func = INTERPOLATION_FUNCTION_DISPATCH[interp_method]
     treasury_yield = interp_func(day_yields_days, day_yields_yields, time_to_maturity)
     if use_spline_bounds:
