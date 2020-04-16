@@ -12,6 +12,13 @@ MATURITY_NAME_TO_DAYS_DICT = {'1 Mo': 30, '2 Mo': 60, '3 Mo': 91, '6 Mo': 182,
                               '1 Yr': 365, '2 Yr': 730, '3 Yr': 1095, '5 Yr': 1825,
                               '7 Yr': 2555, '10 Yr': 3650, '20 Yr': 7300, '30 Yr': 10950}
 RATE_TO_PERCENT = 100
+# Important dates in the history of the CMT Treasury yields data (see get_rate() NOTE for details)
+DISCONT_20Y_START = pd.Timestamp('1987-01-01')
+DISCONT_20Y_END = pd.Timestamp('1993-09-30')
+INTRO_1M = pd.Timestamp('2001-07-31')
+DISCONT_30Y_START = pd.Timestamp('2002-02-19')
+DISCONT_30Y_END = pd.Timestamp('2006-02-08')
+INTRO_2M = pd.Timestamp('2018-10-16')
 
 
 def _parse_raw(raw):
@@ -316,7 +323,7 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
     """ Get an interpolated rate (BEY, APY, zero, 1+APY, etc.) based on CMT Treasury yields
         NOTE: if this function is to be used multiple times, please provide optional parameter loaded_rates
               with the source DataFrame loaded through load_treasury_rates for speed/efficiency purposes
-        NOTE: Properties of Treasury CMT Yield Curve Rates data as obtained through treasury.gov:
+        NOTE: Properties of CMT Treasury Yield Curve Rates data as obtained through treasury.gov:
               - 1 Mo started 2001-07-31; 2 Mo started 2018-10-16
               - 20 Yr discontinued 1987-01-01 through 1993-09-30; 30 Yr discontinued 2002-02-19 through 2006-02-08
               - Columbus Day 2010 (2010-10-11) is inexplicably included but filled with all null values;
@@ -351,33 +358,26 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
             raise ValueError(f"{datelike} rate not available in given loaded_rates.")
     loaded_rates = loaded_rates.dropna(how='all')   # Remove inconsistent all-NaN dates such as 2010-10-11
     # Drop all incomplete data dates, accounting for known missing maturities
-    if pd.Timestamp('1987-01-01') <= date <= pd.Timestamp('1993-09-30'):
-        # Known missing 1 Mo, 2 Mo, 20 Yr
-        complete_rates = loaded_rates.loc[:date].drop(['1 Mo', '2 Mo', '20 Yr'], axis=1).dropna(how='any')
-    elif pd.Timestamp('1993-09-30') < date < pd.Timestamp('2001-07-31'):
-        # Known missing 1 Mo, 2 Mo
-        complete_rates = loaded_rates.loc[:date].drop(['1 Mo', '2 Mo'], axis=1).dropna(how='any')
-    elif pd.Timestamp('2001-07-31') <= date < pd.Timestamp('2002-02-19'):
-        # Known missing 2 Mo
-        complete_rates = loaded_rates.loc[:date].drop(['2 Mo'], axis=1).dropna(how='any')
-    elif pd.Timestamp('2002-02-19') <= date <= pd.Timestamp('2006-02-08'):
-        # Known missing 2 Mo, 30 Yr
-        complete_rates = loaded_rates.loc[:date].drop(['2 Mo', '30 Yr'], axis=1).dropna(how='any')
-    elif pd.Timestamp('2006-02-08') < date < pd.Timestamp('2018-10-16'):
-        # Known missing 2 Mo
-        complete_rates = loaded_rates.loc[:date].drop(['2 Mo'], axis=1).dropna(how='any')
-    elif pd.Timestamp('2018-10-16') <= date:
-        # Known missing nothing
+    if DISCONT_20Y_START <= date <= DISCONT_20Y_END:
+        known_missing_cols = ['1 Mo', '2 Mo', '20 Yr']
+    elif DISCONT_20Y_END < date < INTRO_1M:
+        known_missing_cols = ['1 Mo', '2 Mo']
+    elif INTRO_1M <= date < DISCONT_30Y_START:
+        known_missing_cols = ['2 Mo']
+    elif DISCONT_30Y_START <= date <= DISCONT_30Y_END:
+        known_missing_cols = ['2 Mo', '30 Yr']
+    elif DISCONT_30Y_END < date < INTRO_2M:
+        known_missing_cols = ['2 Mo']
+    elif INTRO_2M <= date:
         if drop_2_mo:
-            # Optional legacy compatibility: pretend 2 Mo is still missing
-            complete_rates = loaded_rates.loc[:date].drop(['2 Mo'], axis=1).dropna(how='any')
+            known_missing_cols = ['2 Mo']   # Legacy option: pretend 2 Mo is still missing
         else:
-            complete_rates = loaded_rates.loc[:date].dropna(how='any')
+            known_missing_cols = []     # Nothing should be missing
     else:
         # Unknown: use all available maturities of most recent date
-        unknown_last_rates = loaded_rates.loc[:date].iloc[-1]   # Specifically evaluate most recent date's data
-        unknown_missing_maturities = unknown_last_rates[unknown_last_rates.isna()].index
-        complete_rates = loaded_rates.loc[:date].drop(unknown_missing_maturities, axis=1)
+        most_recent_rates = loaded_rates.loc[:date].iloc[-1]
+        known_missing_cols = most_recent_rates[most_recent_rates.isna()].index
+    complete_rates = loaded_rates.loc[:date].drop(known_missing_cols, axis=1).dropna(how='any', axis=0)
     # Get most recent complete data date's yields
     day_yields = complete_rates.iloc[-1]    # All NaNs should have been accounted for in previous section
     day_yields_days = [MATURITY_NAME_TO_DAYS_DICT[name] for name in day_yields.index]
