@@ -1,5 +1,6 @@
 import pandas as pd
 from numpy import floor
+from cboe_exchange_holidays_v3 import datelike_to_timestamp
 from options_futures_expirations_v3 import last_friday
 
 REASONABLE_DOLLAR_STRIKE_LIMIT = 300    # $300 on a $100 face value is pushing it
@@ -386,6 +387,7 @@ def read_eod_file(tenor, trade_date, letter, file_dir=None, file_name=None):
     if isinstance(trade_date, str):
         trade_date_str = trade_date
     else:
+        trade_date = datelike_to_timestamp(trade_date)
         trade_date_str = trade_date.strftime('%Y-%m-%d')
     # Use default directory and file name templates
     if file_dir is None:
