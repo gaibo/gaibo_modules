@@ -4,11 +4,12 @@ import re
 from treasury_futures_reader import CODE_EXPMONTH_DICT
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
 from options_futures_expirations_v3 import BUSDAY_OFFSET
+from cme_eod_file_reader import read_eod_file
 
-XTP_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/{}y/XTP_Sourced_Data/'
+XTP_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/JERRY INTERIM XTP/{}y/'
 XTP_FILENAME_TEMPLATE = 'OZN_settlement_{}.txt'
 NOTATION_ADJUSTMENT_ZERO = 0.001
-XTP_OUTPUT_FILEDIR = 'P:/PrdDevSharedDB/CME Data/10y/XTP/'
+XTP_OUTPUT_FILEDIR = 'P:/PrdDevSharedDB/CME Data/JERRY INTERIM XTP/10y/Formatted/'
 
 
 def read_xtp_file(tenor, trade_datelike, return_full=False, file_dir=None, file_name=None):
@@ -53,86 +54,152 @@ def read_xtp_file(tenor, trade_datelike, return_full=False, file_dir=None, file_
 ###############################################################################
 
 if __name__ == '__main__':
-    # Example script for evaluating XTP files
-    USABLE_DATA_DATES = []
-    PRICE_CHANGE_DATES = []  # Subset of USABLE_DATA_DATES, around half
-    EMPTY_DATA_DATES = []
-    MISSING_DATA_DATES = []
-    trading_days = pd.date_range(start='2019-10-28', end='2020-03-25', freq=BUSDAY_OFFSET)
+    READABLE_DATA_DATES = []    # Trading days on which there is usable data
+    EMPTY_DATA_DATES = []       # Trading days on which data files are empty
+    MISSING_DATA_DATES = []     # Trading days on which there are no data files
+    TRULY_DIFFERENT_DATES = []  # READABLE_DATA_DATES on which XTP and CME final prices do not match exactly
+    PRICE_CHANGE_DATES = []     # READABLE_DATA_DATES on which settlement prices change over course of snapshots
+    trading_days = pd.date_range(start='2019-10-28', end='2020-01-31', freq=BUSDAY_OFFSET)
     for date_str in trading_days.strftime('%Y-%m-%d'):
         try:
             xtp = read_xtp_file(10, date_str, return_full=False)
             xtp_full = read_xtp_file(10, date_str, return_full=True)
-            USABLE_DATA_DATES.append(date_str)
+            READABLE_DATA_DATES.append(date_str)
         except EmptyDataError:
             EMPTY_DATA_DATES.append(date_str)
             continue
         except FileNotFoundError:
             MISSING_DATA_DATES.append(date_str)
             continue
-        # Perform operations on USABLE dates
-        # # 1) Export as CME-styled data
-        # xtp_indexed = xtp.set_index(['Last Trade Date', 'Put/Call', 'Strike Price'])
-        # xtp_indexed.to_csv(f"{XTP_OUTPUT_FILEDIR}10y_{date_str}_EOD_latest.csv")
-        # 2) Record date if settlement prices changed over snapshots
+        # Perform operations on READABLE dates
+        # 1) Load comparable XTP and CME prices and check/record differences
+        xtp_prices = xtp.set_index(['Last Trade Date', 'Put/Call', 'Strike Price'])['Settlement']
+        cme_e = read_eod_file(10, date_str, 'e')
+        cme_e_prices = cme_e.set_index(['Last Trade Date', 'Put/Call', 'Strike Price'])['Settlement']
+        diff_bool = xtp_prices.ne(cme_e_prices)
+        diff_idx = diff_bool[diff_bool]     # Remove False rows for aesthetic
+        n_diffs = diff_idx.sum()
+        if n_diffs != 0:
+            print(f"\n****** {date_str} BAD - NO MATCH {n_diffs} DIFFS ******")
+            print(f"CME Official:\n{cme_e_prices[diff_idx.index]}")
+            print(f"XTP Capture:\n{xtp_prices[diff_idx.index]}")
+            print(f"***********************************************\n")
+            TRULY_DIFFERENT_DATES.append(date_str)
+        # 2) Check/record if settlement prices changed over snapshots
         changesum = xtp_full.groupby(['Last Trade Date', 'Put/Call', 'Strike Price'])['Settlement'].diff().abs().sum()
         if changesum != 0:
             print(f"WARNING: {date_str} settlement price(s) "
                   f"changed between snapshots; sum of changes is {changesum}.")
             PRICE_CHANGE_DATES.append(date_str)
-    print(f"Total trading dates: {len(trading_days)}")
-    print(f"Usable data dates: {len(USABLE_DATA_DATES)}")
-    print(f"Usable data dates with settlement price changes: {len(PRICE_CHANGE_DATES)}")
-    print(f"File found but data empty dates ({len(EMPTY_DATA_DATES)}): {EMPTY_DATA_DATES}")
+        # # 3) Export as CME-formatted data files
+        # xtp_indexed = xtp.set_index(['Last Trade Date', 'Put/Call', 'Strike Price'])
+        # xtp_indexed.to_csv(f"{XTP_OUTPUT_FILEDIR}10y_{date_str}_EOD_latest.csv")
+    print(f"\nTotal trading dates: {len(trading_days)}")
+    print(f"Readable data dates: {len(READABLE_DATA_DATES)}")
+    print(f"Readable data dates with differences to purchased CME data: {len(TRULY_DIFFERENT_DATES)}")
+    print(f"Readable data dates with settlement price changes: {len(PRICE_CHANGE_DATES)}")
     print(f"File not found dates ({len(MISSING_DATA_DATES)}): {MISSING_DATA_DATES}")
+    print(f"File found but data empty dates ({len(EMPTY_DATA_DATES)}): {EMPTY_DATA_DATES}\n")
 
 """ Expected Output:
+10y_2019-10-28_EOD_raw_e.csv read.
 WARNING: 2019-10-28 settlement price(s) changed between snapshots; sum of changes is 0.15625.
+10y_2019-10-29_EOD_raw_e.csv read.
 WARNING: 2019-10-29 settlement price(s) changed between snapshots; sum of changes is 0.46875.
+10y_2019-10-30_EOD_raw_e.csv read.
+10y_2019-10-31_EOD_raw_e.csv read.
+10y_2019-11-04_EOD_raw_e.csv read.
 WARNING: 2019-11-04 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+10y_2019-12-05_EOD_raw_e.csv read.
+10y_2019-12-06_EOD_raw_e.csv read.
 WARNING: 2019-12-06 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+10y_2019-12-09_EOD_raw_e.csv read.
+10y_2019-12-10_EOD_raw_e.csv read.
+10y_2019-12-11_EOD_raw_e.csv read.
+10y_2019-12-12_EOD_raw_e.csv read.
 WARNING: 2019-12-12 settlement price(s) changed between snapshots; sum of changes is 1.53125.
+10y_2019-12-13_EOD_raw_e.csv read.
 WARNING: 2019-12-13 settlement price(s) changed between snapshots; sum of changes is 0.0625.
+10y_2019-12-16_EOD_raw_e.csv read.
+10y_2019-12-17_EOD_raw_e.csv read.
+10y_2019-12-18_EOD_raw_e.csv read.
+10y_2019-12-19_EOD_raw_e.csv read.
+10y_2019-12-20_EOD_raw_e.csv read.
 WARNING: 2019-12-20 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+10y_2019-12-23_EOD_raw_e.csv read.
 WARNING: 2019-12-23 settlement price(s) changed between snapshots; sum of changes is 0.078125.
+10y_2019-12-24_EOD_raw_e.csv read.
+10y_2019-12-26_EOD_raw_e.csv read.
+10y_2019-12-27_EOD_raw_e.csv read.
+
+****** 2019-12-27 BAD - NO MATCH 2 DIFFS ******
+CME Official:
+Last Trade Date  Put/Call  Strike Price
+2019-12-27       C         118.0           10.65625
+                 P         106.0            0.00000
+Name: Settlement, dtype: float64
+XTP Capture:
+Last Trade Date  Put/Call  Strike Price
+2019-12-27       C         118.0          NaN
+                 P         106.0          NaN
+Name: Settlement, dtype: float64
+***********************************************
+
 WARNING: 2019-12-27 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+10y_2019-12-30_EOD_raw_e.csv read.
+10y_2019-12-31_EOD_raw_e.csv read.
+10y_2020-01-02_EOD_raw_e.csv read.
+10y_2020-01-03_EOD_raw_e.csv read.
+10y_2020-01-06_EOD_raw_e.csv read.
 WARNING: 2020-01-06 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+10y_2020-01-07_EOD_raw_e.csv read.
 WARNING: 2020-01-07 settlement price(s) changed between snapshots; sum of changes is 0.09375.
+10y_2020-01-08_EOD_raw_e.csv read.
 WARNING: 2020-01-08 settlement price(s) changed between snapshots; sum of changes is 0.03125.
+10y_2020-01-09_EOD_raw_e.csv read.
 WARNING: 2020-01-09 settlement price(s) changed between snapshots; sum of changes is 0.328125.
+10y_2020-01-10_EOD_raw_e.csv read.
 WARNING: 2020-01-10 settlement price(s) changed between snapshots; sum of changes is 0.125.
+10y_2020-01-13_EOD_raw_e.csv read.
+10y_2020-01-14_EOD_raw_e.csv read.
+10y_2020-01-15_EOD_raw_e.csv read.
+10y_2020-01-16_EOD_raw_e.csv read.
 WARNING: 2020-01-16 settlement price(s) changed between snapshots; sum of changes is 0.28125.
+10y_2020-01-21_EOD_raw_e.csv read.
 WARNING: 2020-01-21 settlement price(s) changed between snapshots; sum of changes is 0.0625.
+10y_2020-01-22_EOD_raw_e.csv read.
+10y_2020-01-23_EOD_raw_e.csv read.
+10y_2020-01-24_EOD_raw_e.csv read.
+
+****** 2020-01-24 BAD - NO MATCH 1 DIFFS ******
+CME Official:
+Last Trade Date  Put/Call  Strike Price
+2020-01-24       C         104.25          26.03125
+Name: Settlement, dtype: float64
+XTP Capture:
+Last Trade Date  Put/Call  Strike Price
+2020-01-24       C         104.25         NaN
+Name: Settlement, dtype: float64
+***********************************************
+
+10y_2020-01-27_EOD_raw_e.csv read.
 WARNING: 2020-01-27 settlement price(s) changed between snapshots; sum of changes is 0.21875.
+10y_2020-01-28_EOD_raw_e.csv read.
 WARNING: 2020-01-28 settlement price(s) changed between snapshots; sum of changes is 0.28125.
+10y_2020-01-29_EOD_raw_e.csv read.
 WARNING: 2020-01-29 settlement price(s) changed between snapshots; sum of changes is 0.015625.
+10y_2020-01-30_EOD_raw_e.csv read.
+10y_2020-01-31_EOD_raw_e.csv read.
 WARNING: 2020-01-31 settlement price(s) changed between snapshots; sum of changes is 0.5.
-WARNING: 2020-02-03 settlement price(s) changed between snapshots; sum of changes is 0.21875.
-WARNING: 2020-02-04 settlement price(s) changed between snapshots; sum of changes is 0.421875.
-WARNING: 2020-02-05 settlement price(s) changed between snapshots; sum of changes is 0.03125.
-WARNING: 2020-02-06 settlement price(s) changed between snapshots; sum of changes is 0.125.
-WARNING: 2020-02-07 settlement price(s) changed between snapshots; sum of changes is 0.09375.
-WARNING: 2020-02-13 settlement price(s) changed between snapshots; sum of changes is 0.03125.
-WARNING: 2020-02-14 settlement price(s) changed between snapshots; sum of changes is 0.1875.
-WARNING: 2020-02-18 settlement price(s) changed between snapshots; sum of changes is 0.0625.
-WARNING: 2020-02-28 settlement price(s) changed between snapshots; sum of changes is 0.03125.
-WARNING: 2020-03-02 settlement price(s) changed between snapshots; sum of changes is 0.0625.
-WARNING: 2020-03-03 settlement price(s) changed between snapshots; sum of changes is 0.03125.
-WARNING: 2020-03-10 settlement price(s) changed between snapshots; sum of changes is 0.03125.
-WARNING: 2020-03-12 settlement price(s) changed between snapshots; sum of changes is 1.234375.
-WARNING: 2020-03-16 settlement price(s) changed between snapshots; sum of changes is 2.75.
-WARNING: 2020-03-17 settlement price(s) changed between snapshots; sum of changes is 1.9375.
-WARNING: 2020-03-19 settlement price(s) changed between snapshots; sum of changes is 32.328125.
-WARNING: 2020-03-20 settlement price(s) changed between snapshots; sum of changes is 4.15625.
-WARNING: 2020-03-23 settlement price(s) changed between snapshots; sum of changes is 161.796875.
-WARNING: 2020-03-25 settlement price(s) changed between snapshots; sum of changes is 212.46875.
-Total trading dates: 103
-Usable data dates: 78
-Usable data dates with settlement price changes: 39
-File found but data empty dates (3): ['2020-01-17', '2020-02-24', '2020-03-06']
-File not found dates (22): ['2019-11-01', '2019-11-05', '2019-11-06', '2019-11-07', '2019-11-08', 
-                            '2019-11-11', '2019-11-12', '2019-11-13', '2019-11-14', '2019-11-15', 
-                            '2019-11-18', '2019-11-19', '2019-11-20', '2019-11-21', '2019-11-22', 
-                            '2019-11-25', '2019-11-26', '2019-11-27', '2019-11-29', '2019-12-02', 
+
+Total trading dates: 66
+Readable data dates: 43
+Readable data dates with differences to purchased CME data: 2
+Readable data dates with settlement price changes: 20
+File not found dates (22): ['2019-11-01', '2019-11-05', '2019-11-06', '2019-11-07', '2019-11-08',
+                            '2019-11-11', '2019-11-12', '2019-11-13', '2019-11-14', '2019-11-15',
+                            '2019-11-18', '2019-11-19', '2019-11-20', '2019-11-21', '2019-11-22',
+                            '2019-11-25', '2019-11-26', '2019-11-27', '2019-11-29', '2019-12-02',
                             '2019-12-03', '2019-12-04']
+File found but data empty dates (1): ['2020-01-17']
 """
