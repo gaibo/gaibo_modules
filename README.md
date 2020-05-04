@@ -12,6 +12,8 @@ The modules:
 
 * *cme_eod_file_reader* - a whole module dedicated to the complexities of reading CME's EOD Treasury options data files; *read_eod_file* is the function you want
 
+* *hanweck_eod_file_reader* - a whole module dedicated to the complexities of reading Hanweck's EOD Treasury futures and options data files; *read_hanweck_file* is the function you want
+
 * *options_analytics* - Black-76 Greeks
 
 * *options_data_tools* - common operations performed on DataFrames of options data; e.g. add a risk-free rates column, calculate a forward price column
