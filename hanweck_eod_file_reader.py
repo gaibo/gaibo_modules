@@ -159,3 +159,42 @@ if __name__ == '__main__':
             print(f"{date_str}: PASS")  # 2020-01-24 is 1 of 2 known problematic XTP dates
         else:
             print(f"\n****{date_str}: FAIL****\n")
+
+""" Expected Output:
+10y_2020-01-21_EOD_raw_e.csv read.
+OZN_settlement_200121.txt read.
+Hanweck_CME_Settlement_OOF_20200121.csv read.
+2020-01-21: PASS
+10y_2020-01-22_EOD_raw_e.csv read.
+OZN_settlement_200122.txt read.
+Hanweck_CME_Settlement_OOF_20200122.csv read.
+2020-01-22: PASS
+10y_2020-01-23_EOD_raw_e.csv read.
+OZN_settlement_200123.txt read.
+Hanweck_CME_Settlement_OOF_20200123.csv read.
+2020-01-23: PASS
+10y_2020-01-24_EOD_raw_e.csv read.
+OZN_settlement_200124.txt read.
+Hanweck_CME_Settlement_OOF_20200124.csv read.
+2020-01-24: PASS
+10y_2020-01-27_EOD_raw_e.csv read.
+OZN_settlement_200127.txt read.
+Hanweck_CME_Settlement_OOF_20200127.csv read.
+2020-01-27: PASS
+10y_2020-01-28_EOD_raw_e.csv read.
+OZN_settlement_200128.txt read.
+Hanweck_CME_Settlement_OOF_20200128.csv read.
+2020-01-28: PASS
+10y_2020-01-29_EOD_raw_e.csv read.
+OZN_settlement_200129.txt read.
+Hanweck_CME_Settlement_OOF_20200129.csv read.
+2020-01-29: PASS
+10y_2020-01-30_EOD_raw_e.csv read.
+OZN_settlement_200130.txt read.
+Hanweck_CME_Settlement_OOF_20200130.csv read.
+2020-01-30: PASS
+10y_2020-01-31_EOD_raw_e.csv read.
+OZN_settlement_200131.txt read.
+Hanweck_CME_Settlement_OOF_20200131.csv read.
+2020-01-31: PASS
+"""
