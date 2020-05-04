@@ -1,5 +1,8 @@
 import pandas as pd
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
+from options_futures_expirations_v3 import BUSDAY_OFFSET
+from cme_eod_file_reader import read_cme_file
+from xtp_eod_file_reader import read_xtp_file
 
 # Futures Configurations
 HANWECK_FILEDIR_FUT = 'P:/PrdDevSharedDB/CME Data/Hanweck/Futures/Unzipped/'
@@ -43,13 +46,14 @@ OPT_FIELDS_OUTPUT = \
      'Delta', 'Contract Year-Month', 'Symbol', 'Ticker', 'Underlying Contract ID']
 
 
-def read_hanweck_futures(tenor, trade_datelike, return_full=False, file_dir=None, file_name=None):
+def read_hanweck_futures(tenor, trade_datelike, return_full=False, file_dir=None, file_name=None, verbose=True):
     """ Read Hanweck EOD Treasury futures prices from disk and load them into consistently formatted DataFrames
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury futures)
     :param trade_datelike: trade date as date object or string, e.g. '2019-03-21'
     :param return_full: set True to return all tenors in Hanweck file; default return specified tenor
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
+    :param verbose: set True to print name of file read
     :return: unindexed pd.DataFrame with labeled columns
     """
     # Load specified data
@@ -60,6 +64,8 @@ def read_hanweck_futures(tenor, trade_datelike, return_full=False, file_dir=None
         file_name = HANWECK_FILENAME_FUT_TEMPLATE.format(trade_date.strftime('%Y%m%d'))
     data = pd.read_csv(f'{file_dir}{file_name}', usecols=HANWECK_FUT_FIELDS,
                        parse_dates=HANWECK_FUT_DATE_FIELDS)[HANWECK_FUT_FIELDS]     # Enforce order
+    if verbose:
+        print(file_name + " read.")
     data.columns = FUT_FIELDS_RENAME    # Rename fields to be consistent with CME style
     # Create additional useful fields
     data['Tenor'] = data['Symbol'].map(lambda s: FUTSYMBOL_TENOR_DICT[s])
@@ -77,13 +83,14 @@ def read_hanweck_futures(tenor, trade_datelike, return_full=False, file_dir=None
         return data.set_index('Tenor').loc[tenor].reset_index(drop=True)
 
 
-def read_hanweck_options(tenor, trade_datelike, return_full=False, file_dir=None, file_name=None):
+def read_hanweck_options(tenor, trade_datelike, return_full=False, file_dir=None, file_name=None, verbose=True):
     """ Read Hanweck EOD Treasury options prices from disk and load them into consistently formatted DataFrames
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
     :param trade_datelike: trade date as date object or string, e.g. '2019-03-21'
     :param return_full: set True to return all tenors in Hanweck file; default return specified tenor
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
+    :param verbose: set True to print name of file read
     :return: unindexed pd.DataFrame with labeled columns
     """
     # Load specified data
@@ -94,6 +101,8 @@ def read_hanweck_options(tenor, trade_datelike, return_full=False, file_dir=None
         file_name = HANWECK_FILENAME_OPT_TEMPLATE.format(trade_date.strftime('%Y%m%d'))
     data = pd.read_csv(f'{file_dir}{file_name}', usecols=HANWECK_OPT_FIELDS,
                        parse_dates=HANWECK_OPT_DATE_FIELDS)[HANWECK_OPT_FIELDS]     # Enforce order
+    if verbose:
+        print(file_name + " read.")
     data.columns = OPT_FIELDS_RENAME    # Rename fields to be consistent with CME style
     # Create additional useful fields
     data['Tenor'] = data['Symbol'].map(lambda s: OPTSYMBOL_TENOR_DICT[s])
@@ -111,7 +120,7 @@ def read_hanweck_options(tenor, trade_datelike, return_full=False, file_dir=None
         return data.set_index('Tenor').loc[tenor].reset_index(drop=True)
 
 
-def read_hanweck_file(tenor, trade_datelike, return_full=False, file_dir=None, file_name=None,
+def read_hanweck_file(tenor, trade_datelike, return_full=False, file_dir=None, file_name=None, verbose=True,
                       futures_or_options='options'):
     """ Read Hanweck EOD Treasury prices from disk and load them into consistently formatted DataFrames
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury maturity derivatives)
@@ -119,12 +128,34 @@ def read_hanweck_file(tenor, trade_datelike, return_full=False, file_dir=None, f
     :param return_full: set True to return all tenors in Hanweck file; default return specified tenor
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
+    :param verbose: set True to print name of file read
     :param futures_or_options: set 'options' to use read_hanweck_options(), 'futures' to use read_hanweck_futures()
     :return: unindexed pd.DataFrame with labeled columns
     """
     if futures_or_options == 'options':
-        return read_hanweck_options(tenor, trade_datelike, return_full, file_dir, file_name)
+        return read_hanweck_options(tenor, trade_datelike, return_full, file_dir, file_name, verbose)
     elif futures_or_options == 'futures':
-        return read_hanweck_futures(tenor, trade_datelike, return_full, file_dir, file_name)
+        return read_hanweck_futures(tenor, trade_datelike, return_full, file_dir, file_name, verbose)
     else:
         raise ValueError(f"futures_or_options must be 'options' or 'futures', not '{futures_or_options}'.")
+
+
+###############################################################################
+
+if __name__ == '__main__':
+    # Test equality of CME, XTP, and Hanweck data sources for Treasury options settlement
+    trading_dates = pd.date_range(start='2020-01-20', end='2020-01-31', freq=BUSDAY_OFFSET)
+    for date in trading_dates:
+        # Load
+        cme = read_cme_file(10, date)  # Default to 'e' file, which contains complete prices
+        xtp = read_xtp_file(10, date)
+        hanweck = read_hanweck_file(10, date)
+        cme_price = cme.set_index(['Last Trade Date', 'Put/Call', 'Strike Price'])['Settlement']
+        xtp_price = xtp.set_index(['Last Trade Date', 'Put/Call', 'Strike Price'])['Settlement']
+        hanweck_price = hanweck.set_index(['Last Trade Date', 'Put/Call', 'Strike Price'])['Settlement']
+        # Check equality
+        date_str = date.strftime('%Y-%m-%d')
+        if cme_price.equals(hanweck_price) and (hanweck_price.equals(xtp_price) or date_str == '2020-01-24'):
+            print(f"{date_str}: PASS")  # 2020-01-24 is 1 of 2 known problematic XTP dates
+        else:
+            print(f"\n****{date_str}: FAIL****\n")

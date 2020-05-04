@@ -1,5 +1,5 @@
 import pandas as pd
-from numpy import floor
+import numpy as np
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
 from options_futures_expirations_v3 import last_friday
 
@@ -9,6 +9,7 @@ EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/PURCHASED/{}y/EOD/Unzipped/'
 EOD_FILENAME_TEMPLATE = '{}y_{}_EOD_raw_{}.csv'
 FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE = pd.Timestamp('2008-03-03')
 RANDOM_BAD_E_SETTLEMENT_DATE_STR = '2017-08-28'
+ADJUST_PRICE_TO_NAN = 0     # Notational adjustment
 
 
 def _handle_expirations(data):
@@ -149,7 +150,7 @@ def _handle_e_2017_08_28(data, tenor):
     prices = data['Settlement'].copy()
     prices[(prices == one_64th) | (prices == one_128th) | (prices == one_640th)] = 0  # Match 0s in "p" file
     # Case 1: ticks do not create an extra dollar
-    prices_floor = floor(prices)
+    prices_floor = np.floor(prices)
     prices_floor_remainder = prices - prices_floor
     possible_whole_ticks_1 = prices_floor_remainder / special_tick
     # Case 2: ticks create an extra dollar (64*special_tick = 1.5625, so 1 extra dollar possible)
@@ -374,13 +375,14 @@ def _repair_misinterpreted_whole_dollars(data, tenor, trade_date_str):
     return data_indexed.reset_index()
 
 
-def read_eod_file(tenor, trade_date, letter, file_dir=None, file_name=None):
+def read_cme_file(tenor, trade_date, letter='e', file_dir=None, file_name=None, verbose=True):
     """ Read CME EOD Treasury files from disk and load them into consistently formatted DataFrames
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
     :param trade_date: trade date as date object or string, e.g. '2019-03-21'
     :param letter: 'e' (available starting 2019-02-25), 'p', or 'f'
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
+    :param verbose: set True to print name of file read
     :return: pd.DataFrame with consistent and labeled columns
     """
     # Ensure string version of trade date is available
@@ -408,7 +410,8 @@ def read_eod_file(tenor, trade_date, letter, file_dir=None, file_name=None):
     else:
         data = pd.read_csv(file_dir + file_name,
                            usecols=pf_fields)[pf_fields]    # Enforce column ordering
-    print(file_name + " read.")
+    if verbose:
+        print(file_name + " read.")
 
     # Clean data
     # Handle missing expiration dates
@@ -424,5 +427,7 @@ def read_eod_file(tenor, trade_date, letter, file_dir=None, file_name=None):
     data = _handle_duplicate_series(data)
     # Repair misinterpreted unexpected
     data = _repair_misinterpreted_whole_dollars(data, tenor, trade_date_str)
+    # Adjust 0-prices to be NaN instead - they are not really legitimate for use
+    data.loc[data['Settlement'] == ADJUST_PRICE_TO_NAN, 'Settlement'] = np.NaN
 
     return data

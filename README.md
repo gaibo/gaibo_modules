@@ -10,7 +10,7 @@ The modules:
 
 * *cboe_exchange_holidays_v3* - trading calendar tools
 
-* *cme_eod_file_reader* - a whole module dedicated to the complexities of reading CME's EOD Treasury options data files; *read_eod_file* is the function you want
+* *cme_eod_file_reader* - a whole module dedicated to the complexities of reading CME's EOD Treasury options data files; *read_cme_file* is the function you want
 
 * *hanweck_eod_file_reader* - a whole module dedicated to the complexities of reading Hanweck's EOD Treasury futures and options data files; *read_hanweck_file* is the function you want
 
