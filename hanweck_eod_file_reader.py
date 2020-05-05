@@ -67,6 +67,8 @@ def read_hanweck_futures(tenor, trade_datelike, return_full=False, file_dir=None
                        parse_dates=HANWECK_FUT_DATE_FIELDS)[HANWECK_FUT_FIELDS]     # Enforce order
     if verbose:
         print(file_name + " read.")
+    if data.empty:
+        raise ValueError(f"Empty data file on {trade_datelike}, though columns exist.")
     data.columns = FUT_FIELDS_RENAME    # Rename fields to be consistent with CME style
     # Create additional useful fields
     data['Tenor'] = data['Symbol'].map(lambda s: FUTSYMBOL_TENOR_DICT[s])
@@ -106,6 +108,8 @@ def read_hanweck_options(tenor, trade_datelike, return_full=False, file_dir=None
                        parse_dates=HANWECK_OPT_DATE_FIELDS)[HANWECK_OPT_FIELDS]     # Enforce order
     if verbose:
         print(file_name + " read.")
+    if data.empty:
+        raise ValueError(f"Empty data file on {trade_datelike}, though columns exist.")
     data.columns = OPT_FIELDS_RENAME    # Rename fields to be consistent with CME style
     # Create additional useful fields
     data['Tenor'] = data['Symbol'].map(lambda s: OPTSYMBOL_TENOR_DICT[s])
