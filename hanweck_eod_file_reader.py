@@ -1,9 +1,10 @@
 import pandas as pd
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
 from options_futures_expirations_v3 import BUSDAY_OFFSET
-from cme_eod_file_reader import read_cme_file
+from cme_eod_file_reader import read_cme_file, FIRST_E_DATE
 from xtp_eod_file_reader import read_xtp_file
 
+CME_TO_HANWECK_HANDOFF_DATE = pd.Timestamp('2020-01-31')    # Date of last purchased CME EOD
 # Futures Configurations
 HANWECK_FILEDIR_FUT = 'P:/PrdDevSharedDB/CME Data/Hanweck/Futures/Unzipped/'
 HANWECK_FILENAME_FUT_TEMPLATE = 'Hanweck_CME_Settlement_FUT_{}.csv'     # Fill {} with 20200121, etc.
@@ -76,6 +77,8 @@ def read_hanweck_futures(tenor, trade_datelike, return_full=False, file_dir=None
     data = data[FUT_FIELDS_OUTPUT]
     data = (data.sort_values(['Tenor', 'Last Trade Date'])
             .reset_index(drop=True))
+    # Adjust for known notation differences from CME data
+    data['Settlement'] = data['Settlement'].fillna(0)   # Convert Hanweck's NaN to CME's 0
     # Return only specified tenor or full data
     if return_full:
         return data
@@ -113,6 +116,8 @@ def read_hanweck_options(tenor, trade_datelike, return_full=False, file_dir=None
     data = data[OPT_FIELDS_OUTPUT]
     data = (data.sort_values(['Tenor', 'Last Trade Date', 'Put/Call', 'Strike Price'])
             .reset_index(drop=True))
+    # Adjust for known notation differences from CME data
+    data['Settlement'] = data['Settlement'].fillna(0)   # Convert Hanweck's NaN to CME's 0
     # Return only specified tenor or full data
     if return_full:
         return data
@@ -138,6 +143,27 @@ def read_hanweck_file(tenor, trade_datelike, return_full=False, file_dir=None, f
         return read_hanweck_futures(tenor, trade_datelike, return_full, file_dir, file_name, verbose)
     else:
         raise ValueError(f"futures_or_options must be 'options' or 'futures', not '{futures_or_options}'.")
+
+
+def read_cme_or_hanweck_file(tenor, trade_datelike, file_dir=None, file_name=None, verbose=True):
+    """ Read either CME 'e' or Hanweck depending on date, automatically transitioning between the two
+        NOTE: CME 'e' files did not exist prior to 2016-02-25
+    :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
+    :param trade_datelike: trade date as date object or string, e.g. '2019-03-21'
+    :param file_dir: optional directory to search for data file (overrides default directory)
+    :param file_name: optional exact file name to load from file_dir (overrides default file name)
+    :param verbose: set True to print name of file read
+    :return: unindexed pd.DataFrame with labeled columns
+    """
+    trade_date = datelike_to_timestamp(trade_datelike)
+    if trade_date > CME_TO_HANWECK_HANDOFF_DATE:
+        return read_hanweck_file(tenor, trade_date,
+                                 file_dir=file_dir, file_name=file_name, verbose=verbose)
+    elif trade_date < FIRST_E_DATE:
+        raise ValueError("CME did not produce 'e' files until 2016-02-25.")
+    else:
+        return read_cme_file(tenor, trade_date,
+                             file_dir=file_dir, file_name=file_name, verbose=verbose)
 
 
 ###############################################################################

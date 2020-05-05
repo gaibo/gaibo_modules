@@ -1,6 +1,5 @@
 import pandas as pd
 from pandas.errors import EmptyDataError
-import numpy as np
 import re
 from treasury_futures_reader import CODE_EXPMONTH_DICT
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
@@ -10,7 +9,6 @@ from cme_eod_file_reader import read_cme_file
 XTP_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/JERRY INTERIM XTP/{}y/'
 XTP_FILENAME_TEMPLATE = 'OZN_settlement_{}.txt'
 XTP_OUTPUT_FILEDIR = 'P:/PrdDevSharedDB/CME Data/JERRY INTERIM XTP/10y/Formatted/'
-ADJUST_PRICE_TO_NAN = 0.001     # Notational adjustment
 
 
 def read_xtp_file(tenor, trade_datelike, return_full=False, file_dir=None, file_name=None, verbose=True):
@@ -45,7 +43,8 @@ def read_xtp_file(tenor, trade_datelike, return_full=False, file_dir=None, file_
     ).sort_values(['Last Trade Date', 'Put/Call', 'Strike Price', 'Snapshot Time', 'SettlPriceType (Bitmap)']) \
      .reset_index(drop=True)     # Reset numerical index after sorting
     # Adjust for known notation differences from CME data
-    full.loc[full['Settlement'] == ADJUST_PRICE_TO_NAN, 'Settlement'] = np.NaN
+    full.loc[full['Settlement'] == 0.001, 'Settlement'] = 0     # Convert XTP's 0.001 to CME's 0
+    # Return only specified final snap or full data
     if return_full:
         return full
     else:

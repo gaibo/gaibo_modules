@@ -9,7 +9,7 @@ EOD_FILEDIR_TEMPLATE = 'P:/PrdDevSharedDB/CME Data/PURCHASED/{}y/EOD/Unzipped/'
 EOD_FILENAME_TEMPLATE = '{}y_{}_EOD_raw_{}.csv'
 FIVE_YEAR_SETTLEMENT_FORMAT_CHANGE_DATE = pd.Timestamp('2008-03-03')
 RANDOM_BAD_E_SETTLEMENT_DATE_STR = '2017-08-28'
-ADJUST_PRICE_TO_NAN = 0     # Notational adjustment
+FIRST_E_DATE = pd.Timestamp('2016-02-25')
 
 
 def _handle_expirations(data):
@@ -427,7 +427,7 @@ def read_cme_file(tenor, trade_date, letter='e', file_dir=None, file_name=None, 
     data = _handle_duplicate_series(data)
     # Repair misinterpreted unexpected
     data = _repair_misinterpreted_whole_dollars(data, tenor, trade_date_str)
-    # Adjust 0-prices to be NaN instead - they are not really legitimate for use
-    data.loc[data['Settlement'] == ADJUST_PRICE_TO_NAN, 'Settlement'] = np.NaN
+    # # Adjust 0-prices to be NaN instead - they are not really legitimate for use
+    # data.loc[data['Settlement'] == 0, 'Settlement'] = None
 
     return data
