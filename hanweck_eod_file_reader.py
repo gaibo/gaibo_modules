@@ -149,7 +149,8 @@ def read_hanweck_file(tenor, trade_datelike, return_full=False, file_dir=None, f
         raise ValueError(f"futures_or_options must be 'options' or 'futures', not '{futures_or_options}'.")
 
 
-def read_cme_or_hanweck_file(tenor, trade_datelike, file_dir=None, file_name=None, verbose=True):
+def read_cme_or_hanweck_file(tenor, trade_datelike, file_dir=None, file_name=None, verbose=True,
+                             force_use=None):
     """ Read either CME 'e' or Hanweck depending on date, automatically transitioning between the two
         NOTE: CME 'e' files did not exist prior to 2016-02-25
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
@@ -157,8 +158,19 @@ def read_cme_or_hanweck_file(tenor, trade_datelike, file_dir=None, file_name=Non
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
     :param verbose: set True to print name of file read
+    :param force_use: set 'hanweck' to force use of Hanweck source, 'cme' for CME purchased
     :return: unindexed pd.DataFrame with labeled columns
     """
+    if force_use is not None:
+        if force_use == 'hanweck':
+            return read_hanweck_file(tenor, trade_datelike,
+                                     file_dir=file_dir, file_name=file_name, verbose=verbose)
+        elif force_use == 'cme':
+            return read_cme_file(tenor, trade_datelike,
+                                 file_dir=file_dir, file_name=file_name, verbose=verbose)
+        else:
+            raise ValueError("force_use must be given either 'hanweck' or 'cme'.")
+    # Automatically determine which source to use
     trade_date = datelike_to_timestamp(trade_datelike)
     if trade_date > CME_TO_HANWECK_HANDOFF_DATE:
         return read_hanweck_file(tenor, trade_date,
