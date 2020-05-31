@@ -54,3 +54,28 @@ def unzip_gz(zipped_file_dir, file_name, unzipped_file_dir=None, verbose=False):
         if verbose:
             print(f"No need; already unzipped: {unzipped_full_name}")
         return False    # No unzip needed
+
+
+def download_file(url, file_name, verbose=False):
+    """ Retrieve file from given URL and write to local file
+        NOTE: this function checks whether given file name already exists locally
+              and ensures files are never overwritten
+        NOTE: requests.get()'s stream=True + iterator used for memory-efficiency
+              in case of large files
+    :param url: web API URL on which to use requests.get()
+    :param file_name: full path name with which to save retrieved file locally
+    :param verbose: set True for explicit print statements
+    :return: True if file was written, False if nothing written
+    """
+    if pathlib.Path(file_name).exists():
+        if verbose:
+            print(f"File already exists; will not overwrite: {file_name}")
+        return False
+    with safe_requests_get(url, stream=True) as r_in, open(file_name, 'wb') as f_out:
+        for content in r_in.iter_content():
+            if verbose:
+                print(f"Writing content chunk: {content}")
+            f_out.write(content)
+        if verbose:
+            print("Writing to file complete.")
+    return True
