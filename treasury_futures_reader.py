@@ -174,7 +174,7 @@ def pull_fut_prices(start_datelike, end_datelike=None, bloomberg_con=None,
         for year in range(start_date.year, end_date.year):
             # For all years up to but not including current year of end_date
             for quarter_code in QUARTER_CODE_LIST:
-                ticker = tenor_code + quarter_code + f'{year:02d}' + ' Comdty'
+                ticker = tenor_code + quarter_code + f'{year%100:02d}' + ' Comdty'
                 ticker_list.append(ticker)
         # For current year of end_date
         for quarter_code in QUARTER_CODE_LIST:
@@ -185,7 +185,12 @@ def pull_fut_prices(start_datelike, end_datelike=None, bloomberg_con=None,
     bbg_end_dt = end_date.strftime('%Y%m%d')
     if bloomberg_con is None:
         bloomberg_con = create_bloomberg_connection()
+        must_close_con = True
+    else:
+        must_close_con = False
     fut_price_df = bloomberg_con.bdh(ticker_list, 'PX_LAST', start_date=bbg_start_dt, end_date=bbg_end_dt)
+    if must_close_con:
+        bloomberg_con.stop()    # Close connection iff it was specifically made for this
     # Export
     fut_price_df.to_csv(file_dir + file_name)
     return fut_price_df
