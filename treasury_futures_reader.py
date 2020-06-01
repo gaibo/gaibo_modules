@@ -153,7 +153,7 @@ def reformat_pdblp(pdblp_result, ticker_index=None, is_bdh=False, squeeze=False)
     return result_df
 
 
-def pull_fut_prices(start_datelike, end_datelike, bloomberg_con=None,
+def pull_fut_prices(start_datelike, end_datelike=None, bloomberg_con=None,
                     file_dir=BLOOMBERG_PULLS_FILEDIR, file_name=TREASURY_FUT_CSV_FILENAME):
     """ Pull Treasury futures prices from Bloomberg Terminal and write them to disk
     :param start_datelike: date-like representation of start date
@@ -164,7 +164,10 @@ def pull_fut_prices(start_datelike, end_datelike, bloomberg_con=None,
     :return: pd.DataFrame with all Treasury futures prices between start and end dates
     """
     start_date = datelike_to_timestamp(start_datelike)
-    end_date = datelike_to_timestamp(end_datelike)
+    if end_datelike is None:
+        end_date = pd.Timestamp('now').normalize()
+    else:
+        end_date = datelike_to_timestamp(end_datelike)
     # Create list of all Treasury futures Bloomberg tickers in use between start and end dates
     ticker_list = []
     for tenor_code in TENOR_CODE_DICT.values():
