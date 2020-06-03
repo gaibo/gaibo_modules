@@ -1,7 +1,7 @@
 import pandas as pd
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
 from options_futures_expirations_v3 import BUSDAY_OFFSET
-from cme_eod_file_reader import read_cme_file, FIRST_E_DATE
+from cme_eod_file_reader import read_cme_file
 from xtp_eod_file_reader import read_xtp_file
 
 CME_TO_HANWECK_HANDOFF_DATE = pd.Timestamp('2020-01-31')    # Date of last purchased CME EOD
@@ -150,7 +150,7 @@ def read_hanweck_file(tenor, trade_datelike, return_full=False, file_dir=None, f
 
 
 def read_cme_or_hanweck_file(tenor, trade_datelike, cme_letter='e', file_dir=None, file_name=None,
-                             verbose=True, force_use=None):
+                             verbose=True, force_use=None, hanweck_use_next_busday=False):
     """ Read either CME 'e' or Hanweck depending on date, automatically transitioning between the two
         NOTE: CME 'e' files did not exist prior to 2016-02-25
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
@@ -161,25 +161,31 @@ def read_cme_or_hanweck_file(tenor, trade_datelike, cme_letter='e', file_dir=Non
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
     :param verbose: set True to print name of file read
     :param force_use: set 'hanweck' to force use of Hanweck source, 'cme' for CME purchased
+    :param hanweck_use_next_busday: set True to read Hanweck file from business day after trade_datelike;
+                                    this is necessary as Hanweck records "previous day" volume and OI
     :return: unindexed pd.DataFrame with labeled columns
     """
+    trade_date = datelike_to_timestamp(trade_datelike)
     if force_use is not None:
         if force_use == 'hanweck':
-            return read_hanweck_file(tenor, trade_datelike,
+            if hanweck_use_next_busday:
+                trade_date += BUSDAY_OFFSET
+            return read_hanweck_file(tenor, trade_date,
                                      file_dir=file_dir, file_name=file_name, verbose=verbose)
         elif force_use == 'cme':
-            return read_cme_file(tenor, trade_datelike, letter=cme_letter,
+            return read_cme_file(tenor, trade_date, letter=cme_letter,
                                  file_dir=file_dir, file_name=file_name, verbose=verbose)
         else:
             raise ValueError("force_use must be given either 'hanweck' or 'cme'.")
     # Automatically determine which source to use
-    trade_date = datelike_to_timestamp(trade_datelike)
     if trade_date > CME_TO_HANWECK_HANDOFF_DATE:
+        # Use Hanweck
+        if hanweck_use_next_busday:
+            trade_date += BUSDAY_OFFSET
         return read_hanweck_file(tenor, trade_date,
                                  file_dir=file_dir, file_name=file_name, verbose=verbose)
-    elif trade_date < FIRST_E_DATE:
-        raise ValueError("CME did not produce 'e' files until 2016-02-25.")
     else:
+        # Use CME
         return read_cme_file(tenor, trade_date, letter=cme_letter,
                              file_dir=file_dir, file_name=file_name, verbose=verbose)
 
