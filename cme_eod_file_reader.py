@@ -389,7 +389,7 @@ def read_cme_file(tenor, trade_datelike, letter='e', file_dir=None, file_name=No
     trade_date = datelike_to_timestamp(trade_datelike)
     trade_date_str = trade_date.strftime('%Y-%m-%d')
     # Raise error if 'e' file did not yet exist
-    if trade_date < FIRST_E_DATE:
+    if letter == 'e' and trade_date < FIRST_E_DATE:
         raise ValueError("CME did not produce 'e' files until 2016-02-25.")
     # Use default directory and file name templates
     if file_dir is None:
