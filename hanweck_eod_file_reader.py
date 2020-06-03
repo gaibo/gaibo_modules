@@ -149,12 +149,14 @@ def read_hanweck_file(tenor, trade_datelike, return_full=False, file_dir=None, f
         raise ValueError(f"futures_or_options must be 'options' or 'futures', not '{futures_or_options}'.")
 
 
-def read_cme_or_hanweck_file(tenor, trade_datelike, file_dir=None, file_name=None, verbose=True,
-                             force_use=None):
+def read_cme_or_hanweck_file(tenor, trade_datelike, cme_letter='e', file_dir=None, file_name=None,
+                             verbose=True, force_use=None):
     """ Read either CME 'e' or Hanweck depending on date, automatically transitioning between the two
         NOTE: CME 'e' files did not exist prior to 2016-02-25
     :param tenor: 2, 5, 10, or 30 (2-, 5-, 10-, 30-year Treasury options)
     :param trade_datelike: trade date as date object or string, e.g. '2019-03-21'
+    :param cme_letter: 'e' (available starting 2019-02-25), 'p', or 'f'; default 'e' for settlement
+                       prices consistent with Hanweck files, though 'p' or 'f' needed for volume
     :param file_dir: optional directory to search for data file (overrides default directory)
     :param file_name: optional exact file name to load from file_dir (overrides default file name)
     :param verbose: set True to print name of file read
@@ -166,7 +168,7 @@ def read_cme_or_hanweck_file(tenor, trade_datelike, file_dir=None, file_name=Non
             return read_hanweck_file(tenor, trade_datelike,
                                      file_dir=file_dir, file_name=file_name, verbose=verbose)
         elif force_use == 'cme':
-            return read_cme_file(tenor, trade_datelike,
+            return read_cme_file(tenor, trade_datelike, letter=cme_letter,
                                  file_dir=file_dir, file_name=file_name, verbose=verbose)
         else:
             raise ValueError("force_use must be given either 'hanweck' or 'cme'.")
@@ -178,7 +180,7 @@ def read_cme_or_hanweck_file(tenor, trade_datelike, file_dir=None, file_name=Non
     elif trade_date < FIRST_E_DATE:
         raise ValueError("CME did not produce 'e' files until 2016-02-25.")
     else:
-        return read_cme_file(tenor, trade_date,
+        return read_cme_file(tenor, trade_date, letter=cme_letter,
                              file_dir=file_dir, file_name=file_name, verbose=verbose)
 
 
