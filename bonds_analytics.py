@@ -331,6 +331,32 @@ def get_whole_year_month_day_difference(datelike_1, datelike_2):
         return whole_years, whole_months, whole_days
 
 
+def get_day_difference_30_360(datelike_1, datelike_2):
+    """ Return difference in days between two dates, in 30/360 day count convention
+        NOTE: this exists as a special function because Actual/Actual day count convention
+              subtraction can be done natively with pd.Timestamps
+    :param datelike_1: earlier date
+    :param datelike_2: later date
+    :return: number of days (negative if earlier and later are switched)
+    """
+    date_1 = datelike_to_timestamp(datelike_1)
+    date_2 = datelike_to_timestamp(datelike_2)
+    # Mark if dates are chronologically backwards
+    if date_2 < date_1:
+        earlier_later_reversed = True
+        date_1, date_2 = date_2, date_1     # Make date_1 before date_2 for uniform calculation
+    else:
+        earlier_later_reversed = False
+    # Get whole years and months difference, then figure out days in 30/360 convention
+    n_years, n_months, _ = get_whole_year_month_day_difference(date_1, date_2)
+    if date_2.day >= date_1.day:
+        spare_days_30_360 = date_2.day - date_1.day
+    else:
+        spare_days_30_360 = 30-date_1.day + date_2.day  # Alternatively, use modulo 30
+    total_days_30_360 = n_years*360 + n_months*30 + spare_days_30_360
+    return -total_days_30_360 if earlier_later_reversed else total_days_30_360
+
+
 def get_conversion_factor(coupon, maturity_datelike, delivery_monthlike, tenor, no_rounding=False):
     """ Calculate Treasury futures conversion factor - approximate decimal price
         at which $1 par of security would trade if it had a 6% yield to maturity
