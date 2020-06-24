@@ -80,65 +80,87 @@ def get_remaining_coupon_periods(maturity_datelike=None, settle_datelike=None,
     return remaining_coupon_periods
 
 
-def get_price_from_yield(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
-                         n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
+def get_price_from_yield(ytm_bey, coupon, maturity_datelike=None, settle_datelike=None,
+                         n_remaining_coupons=None, remaining_first_period=1.0,
+                         remaining_coupon_periods=None, remaining_payments=None,
                          get_dirty=False, verbose=False):
-    """ Calculate price of semiannual coupon bond from yield to maturity
-        NOTE: in order to derive the maturity, please supply one of the following three configurations:
-              1) maturity_datelike and settle_datelike
-              2) n_remaining_coupons and (optional) remaining_first_period
-              3) remaining_coupon_periods
-    :param coupon: coupon percentage of bond, e.g. 2.875
+    """ Calculate price from yield to maturity for either semiannual coupon bond or generic cash flows
+        NOTE: All cash flows can be reduced to:
+              a) numbers of (semiannual for USA) periods forward at which payments arrive
+              b) payment amounts that arrive at those points in time
+              Combining a) and b) with yield, a (dirty in context of notes/bonds) price can be obtained.
+              This function was originally designed for Treasury notes/bonds, where
+              a) is derived from 1) settlement date and 2) maturity date and
+              b) is derived from coupon.
+              For ease of use, a) can alternatively be derived from 1) number of remaining coupons
+              and 2) remaining (opposite of elapsed) first period.
+              To expand (reduce is more accurate) this function to price general cash flows,
+              a) can be directly given as remaining_coupon_periods and
+              b) can be directly given as remaining_payments.
+        NOTE: when pricing generic cash flows, there is no concept of clean price, so get_dirty does nothing
     :param ytm_bey: bond equivalent yield to maturity percentage of bond, e.g. 2.858
+    :param coupon: coupon percentage of bond, e.g. 2.875; set None for generic cash flows
     :param maturity_datelike: maturity date of bond
     :param settle_datelike: settlement date of bond (business day after trade date)
-    :param n_remaining_coupons: number of remaining coupons up to maturity of bond; set not None for configuration 2
+    :param n_remaining_coupons: number of remaining fixed coupons to maturity of bond
     :param remaining_first_period: fraction of the first upcoming coupon period still remaining
-    :param remaining_coupon_periods: numpy/pandas array; set not None for configuration 3
+    :param remaining_coupon_periods: numpy/pandas array of upcoming periods-until-payments
+    :param remaining_payments: numpy/pandas array of upcoming payment amounts
     :param get_dirty: set True to return dirty price rather than clean (quoted) price
     :param verbose: set True to print discounted cash flows
-    :return: clean price of bond (unless get_dirty is True) with 100 as par
+    :return: if pricing fixed-coupon bond, clean price of bond (unless get_dirty is True) with 100 as par
     """
+    ytm_semiannual = ytm_bey/2 / 100    # Convert to non-percentage
     if remaining_coupon_periods is None:
         # Derive (potentially non-whole) discount rate periods since they are not given
         remaining_coupon_periods = get_remaining_coupon_periods(maturity_datelike, settle_datelike,
                                                                 n_remaining_coupons, remaining_first_period)
-    coupon_payment = coupon/2
-    cash_flows = np.full_like(remaining_coupon_periods, coupon_payment)
-    cash_flows[-1] += 100  # Face value delivered at maturity
-    ytm_semiannual = ytm_bey/2 / 100    # Convert to non-percentage
+    if remaining_payments is None:
+        # Derive upcoming payments of coupon bond with face value 100
+        if coupon is None:
+            raise ValueError("coupon is None so function is receiving generic cash flows;\n"
+                             "both remaining_coupon_periods and remaining_payments are expected.")
+        coupon_payment = coupon/2
+        remaining_payments = np.full_like(remaining_coupon_periods, coupon_payment)
+        remaining_payments[-1] += 100  # Face value delivered at maturity
+    # Calculate discount factors and price the cash flows
     discount_factors = 1 / (1 + ytm_semiannual)**remaining_coupon_periods
-    discounted_cash_flows = cash_flows * discount_factors
+    discounted_cash_flows = remaining_payments * discount_factors
     calc_dirty_price = discounted_cash_flows.sum()
-    elapsed_first_period = 1 - remaining_coupon_periods[0]
-    accrued_interest = elapsed_first_period * coupon_payment
-    calc_clean_price = calc_dirty_price - accrued_interest
+    if coupon is not None:
+        # Fixed-coupon mode: can obtain a clean price
+        elapsed_first_period = 1 - remaining_coupon_periods[0]
+        coupon_payment = coupon/2
+        accrued_interest = elapsed_first_period * coupon_payment
+        calc_clean_price = calc_dirty_price - accrued_interest
+    else:
+        calc_clean_price = None
     if verbose:
         for i, discounted_payment in enumerate(discounted_cash_flows, 1):
             print(f"Discounted Payment {i}: {discounted_payment}")
         print(f"Calculated Dirty Price: {calc_dirty_price}")
         print(f"Calculated Clean Price: {calc_clean_price}")
-    if get_dirty:
+    if coupon is None or get_dirty:
         return calc_dirty_price
     else:
         return calc_clean_price
 
 
-def get_yield_to_maturity(coupon, price, maturity_datelike=None, settle_datelike=None,
-                          n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
+def get_yield_to_maturity(price, coupon, maturity_datelike=None, settle_datelike=None,
+                          n_remaining_coupons=None, remaining_first_period=1.0,
+                          remaining_coupon_periods=None, remaining_payments=None,
                           is_dirty_price=False):
-    """ Back out bond equivalent yield to maturity from bond specs, price, and time to maturity
-        NOTE: in order to derive the maturity, please supply one of the following three configurations:
-              1) maturity_datelike and settle_datelike
-              2) n_remaining_coupons and (optional) remaining_first_period
-              3) remaining_coupon_periods
-    :param coupon: coupon percentage of bond, e.g. 2.875
+    """ Back out bond equivalent yield to maturity from price
+        NOTE: please see NOTE of get_price_from_yield() for context on parameter names and usage
+        NOTE: when pricing generic cash flows, there is no concept of clean price, so is_dirty_price does nothing
     :param price: clean (quoted) price of bond, unless is_dirty_price is True
+    :param coupon: coupon percentage of bond, e.g. 2.875; set None for generic cash flows
     :param maturity_datelike: maturity date of bond
     :param settle_datelike: settlement date of bond (business day after trade date)
-    :param n_remaining_coupons: number of remaining coupons up to maturity of bond; set not None for configuration 2
+    :param n_remaining_coupons: number of remaining fixed coupons to maturity of bond
     :param remaining_first_period: fraction of the first upcoming coupon period still remaining
-    :param remaining_coupon_periods: numpy/pandas array; set not None for configuration 3
+    :param remaining_coupon_periods: numpy/pandas array of upcoming periods-until-payments
+    :param remaining_payments: numpy/pandas array of upcoming payment amounts
     :param is_dirty_price: set True if input price is dirty price
     :return: BEY yield to maturity in percent
     """
@@ -148,52 +170,58 @@ def get_yield_to_maturity(coupon, price, maturity_datelike=None, settle_datelike
                                                                 n_remaining_coupons, remaining_first_period)
     # Back out the yield
     solved_root = root(lambda ytm_bey:
-                       get_price_from_yield(coupon, ytm_bey, None, None,
+                       get_price_from_yield(ytm_bey, coupon, None, None,
                                             remaining_coupon_periods=remaining_coupon_periods,
+                                            remaining_payments=remaining_payments,
                                             get_dirty=is_dirty_price, verbose=False)
                        - price, x0=np.array(2))
     return solved_root.x[0]
 
 
-def get_duration(coupon, ytm_bey, maturity_datelike=None, settle_datelike=None,
-                 n_remaining_coupons=None, remaining_first_period=1.0, remaining_coupon_periods=None,
-                 get_macaulay=False):
-    """ Calculate duration (modified or Macaulay) from coupon, yield, and time to maturity
-        NOTE: in order to derive the maturity, please supply one of the following three configurations:
-              1) maturity_datelike and settle_datelike
-              2) n_remaining_coupons and (optional) remaining_first_period
-              3) remaining_coupon_periods
-    :param coupon: coupon percentage of bond, e.g. 2.875
+def get_duration(ytm_bey, coupon, maturity_datelike=None, settle_datelike=None,
+                 n_remaining_coupons=None, remaining_first_period=1.0,
+                 remaining_coupon_periods=None, remaining_payments=None,
+                 get_modified=False):
+    """ Calculate duration (modified or Macaulay) from yield and cash flows
+        NOTE: please see NOTE of get_price_from_yield() for context on parameter names and usage
     :param ytm_bey: bond equivalent yield to maturity percentage of bond, e.g. 2.858
+    :param coupon: coupon percentage of bond, e.g. 2.875
     :param maturity_datelike: maturity date of bond
     :param settle_datelike: settlement date of bond (business day after trade date)
-    :param n_remaining_coupons: number of remaining coupons up to maturity of bond; set not None for configuration 2
+    :param n_remaining_coupons: number of remaining fixed coupons to maturity of bond
     :param remaining_first_period: fraction of the first upcoming coupon period still remaining
-    :param remaining_coupon_periods: numpy/pandas array; set not None for configuration 3
-    :param get_macaulay: set True for Macaulay duration; default modified duration
+    :param remaining_coupon_periods: numpy/pandas array of upcoming periods-until-payments
+    :param remaining_payments: numpy/pandas array of upcoming payment amounts
+    :param get_modified: set True for modified duration instead of Macaulay
     :return: modified or Macaulay (known as just "duration") duration in years
     """
+    ytm_semiannual = ytm_bey/2 / 100
     if remaining_coupon_periods is None:
         # Derive (potentially non-whole) discount rate periods since they are not given
         remaining_coupon_periods = get_remaining_coupon_periods(maturity_datelike, settle_datelike,
                                                                 n_remaining_coupons, remaining_first_period)
-    # Calculate cash flows and discount factors
-    coupon_payment = coupon/2
-    cash_flows = np.full_like(remaining_coupon_periods, coupon_payment)
-    cash_flows[-1] += 100   # Face value delivered at maturity
-    ytm_semiannual = ytm_bey/2 / 100
+    if remaining_payments is None:
+        # Derive upcoming payments of coupon bond with face value 100
+        if coupon is None:
+            raise ValueError("coupon is None so function is receiving generic cash flows;\n"
+                             "both remaining_coupon_periods and remaining_payments are expected.")
+        coupon_payment = coupon/2
+        remaining_payments = np.full_like(remaining_coupon_periods, coupon_payment)
+        remaining_payments[-1] += 100  # Face value delivered at maturity
+    # Calculate the discount factors
     discount_factors = 1 / (1 + ytm_semiannual)**remaining_coupon_periods
-    # Macaulay duration is (cash flows*discount factors*period numbers)/(cash flows*discount factors) / periods in year
-    cf_present_value_weighted_n_periods = (cash_flows * discount_factors * remaining_coupon_periods).sum()
-    cf_present_value = (cash_flows * discount_factors).sum()
+    # Macaulay duration is:
+    # sum(payments*discount factors*period numbers)/sum(payments*discount factors) / periods in year
+    cf_present_value_weighted_n_periods = (remaining_payments * discount_factors * remaining_coupon_periods).sum()
+    cf_present_value = (remaining_payments * discount_factors).sum()
     duration_n_periods = cf_present_value_weighted_n_periods / cf_present_value
     macaulay_duration = duration_n_periods / 2  # 2 coupon periods in a year
-    if get_macaulay:
-        return macaulay_duration
-    else:
+    if get_modified:
         # Modified duration is Macaulay duration / (1 + yield/compounding frequency)
         modified_duration = macaulay_duration / (1 + ytm_semiannual)
         return modified_duration
+    else:
+        return macaulay_duration
 
 
 def get_last_delivery_date(delivery_monthlike, tenor):
@@ -212,12 +240,12 @@ def get_last_delivery_date(delivery_monthlike, tenor):
     return last_delivery_date
 
 
-def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike,
+def get_implied_repo_rate(bond_price, coupon, maturity_datelike, settle_datelike,
                           futures_price, conver_factor, delivery_datelike, delivery_monthlike=None, tenor=None):
     """ Calculate implied repo rate from bond and futures specs
         NOTE: delivery_monthlike and tenor can be supplied together as an alternative to delivery_datelike
-    :param coupon: coupon percentage of bond, e.g. 2.875
     :param bond_price: clean price of bond
+    :param coupon: coupon percentage of bond, e.g. 2.875
     :param maturity_datelike: maturity date of bond
     :param settle_datelike: settlement date of bond (business day after trade date)
     :param futures_price: price of futures contract
@@ -235,9 +263,9 @@ def get_implied_repo_rate(coupon, bond_price, maturity_datelike, settle_datelike
     else:
         delivery_date = datelike_to_timestamp(delivery_datelike)
     if settle_date >= delivery_date:
-        raise ValueError(f"ERROR: Settle date of bond ({settle_date.strftime('%Y-%m-%d')}) must be prior\n"
-                         f"       to delivery date of futures ({delivery_date.strftime('%Y-%m-%d')})\n"
-                         f"       for implied repo rate to exist.")
+        raise ValueError(f"Settle date of bond ({settle_date.strftime('%Y-%m-%d')}) must be prior\n"
+                         f"to delivery date of futures ({delivery_date.strftime('%Y-%m-%d')})\n"
+                         f"for implied repo rate to exist.")
     # Find coupon dates and related accruals
     coupon_payment = coupon/2
     settle_prev_coupon_date, settle_next_coupon_date, settle_days_in_period, settle_days_since_coupon = \
@@ -504,10 +532,10 @@ if __name__ == '__main__':
     print("\nExample 1: 4 Whole Coupon Periods (Dirty Price = Clean Price)\n")
     true_ytm = 2.594
     print(f"True Yield to Maturity: {true_ytm}")
-    calculated_price = get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True)
-    print(f"get_price_from_yield(2.875, true_ytm, n_remaining_coupons=4, verbose=True):\n{calculated_price}")
-    calculated_ytm = get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30')
-    print(f"get_yield_to_maturity(2.875, calculated_price, '2010-06-30', '2008-06-30'):\n{calculated_ytm}")
+    calculated_price = get_price_from_yield(true_ytm, 2.875, n_remaining_coupons=4, verbose=True)
+    print(f"get_price_from_yield(true_ytm, 2.875, n_remaining_coupons=4, verbose=True):\n{calculated_price}")
+    calculated_ytm = get_yield_to_maturity(calculated_price, 2.875, '2010-06-30', '2008-06-30')
+    print(f"get_yield_to_maturity(calculated_price, 2.875, '2010-06-30', '2008-06-30'):\n{calculated_ytm}")
     if np.isclose(true_ytm, calculated_ytm):
         print("PASS")
     else:
@@ -516,12 +544,12 @@ if __name__ == '__main__':
     print("\nExample 2: 20 Non-Whole Coupon Periods\n")
     true_clean_price = 99.4375
     print(f"True Clean Price: {true_clean_price}")
-    calculated_yield = get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_dirty_price=False)
-    print(f"get_yield_to_maturity(3.875, true_clean_price, '2018-05-15', '2008-07-11', is_dirty_price=False):\n"
+    calculated_yield = get_yield_to_maturity(true_clean_price, 3.875, '2018-05-15', '2008-07-11', is_dirty_price=False)
+    print(f"get_yield_to_maturity(true_clean_price, 3.875, '2018-05-15', '2008-07-11', is_dirty_price=False):\n"
           f"{calculated_yield}")
-    calculated_clean_price = get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,
+    calculated_clean_price = get_price_from_yield(calculated_yield, 3.875, n_remaining_coupons=20,
                                                   remaining_first_period=1-57/184, get_dirty=False)
-    print(f"get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,\n"
+    print(f"get_price_from_yield(calculated_yield, 3.875, n_remaining_coupons=20,\n"
           f"                     remaining_first_period=1-57/184, get_dirty=False):\n{calculated_clean_price}")
     if np.isclose(true_clean_price, calculated_clean_price):
         print("PASS")
@@ -543,9 +571,9 @@ if __name__ == '__main__':
         print("PASS")
     else:
         print("****FAILED****")
-    calculated_dirty_price = get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,
+    calculated_dirty_price = get_price_from_yield(calculated_yield, 3.875, n_remaining_coupons=20,
                                                   remaining_first_period=1-57/184, get_dirty=True)
-    print(f"get_price_from_yield(3.875, calculated_yield, n_remaining_coupons=20,\n"
+    print(f"get_price_from_yield(calculated_yield, 3.875, n_remaining_coupons=20,\n"
           f"                     remaining_first_period=1-57/184, get_dirty=True):\n{calculated_dirty_price}")
     if np.isclose(true_dirty_price, calculated_dirty_price):
         print("PASS")
@@ -554,15 +582,15 @@ if __name__ == '__main__':
 
     print("\nExample 3: Duration\n")
     true_macaulay = 1.2215
-    calculated_macaulay = get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True)
-    print(f"get_duration(2.875, 402.278216, '2010-06-30', '2008-10-22', get_macaulay=True):\n{calculated_macaulay}")
+    calculated_macaulay = get_duration(402.278216, 2.875, '2010-06-30', '2008-10-22')
+    print(f"get_duration(402.278216, 2.875, '2010-06-30', '2008-10-22'):\n{calculated_macaulay}")
     if np.isclose(true_macaulay, calculated_macaulay):
         print("PASS")
     else:
         print("****FAILED****")
     true_modified = 0.4055
-    calculated_modified = get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22')
-    print(f"get_duration(2.875, 402.388618, '2010-06-30', '2008-10-22'):\n{calculated_modified}")
+    calculated_modified = get_duration(402.388618, 2.875, '2010-06-30', '2008-10-22', get_modified=True)
+    print(f"get_duration(402.388618, 2.875, '2010-06-30', '2008-10-22', get_modified=True):\n{calculated_modified}")
     if np.isclose(true_modified, calculated_modified):
         print("PASS")
     else:
@@ -579,9 +607,9 @@ if __name__ == '__main__':
     test_delivery_monthlike = '03/01/20'    # Delivery date is 03/31/20, but we'll derive that
     test_tenor = 10
     calculated_implied_repo_rate = \
-        get_implied_repo_rate(test_coupon, test_bond_price, test_maturity_datelike, test_settle_datelike,
+        get_implied_repo_rate(test_bond_price, test_coupon, test_maturity_datelike, test_settle_datelike,
                               test_futures_price, test_conver_factor, None, test_delivery_monthlike, test_tenor)
-    print(f"get_implied_repo_rate({test_coupon}, {test_bond_price}, {test_maturity_datelike}, {test_settle_datelike}, "
+    print(f"get_implied_repo_rate({test_bond_price}, {test_coupon}, {test_maturity_datelike}, {test_settle_datelike}, "
           f"{test_futures_price}, {test_conver_factor}, None, {test_delivery_monthlike}, {test_tenor}):\n"
           f"{calculated_implied_repo_rate}")
     if np.isclose(true_implied_repo_rate, round(calculated_implied_repo_rate, 3)):
