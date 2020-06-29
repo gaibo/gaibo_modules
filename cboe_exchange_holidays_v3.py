@@ -30,6 +30,10 @@ NineElevenWednesday = Holiday('9/11', year=2001, month=9, day=12)
 NineElevenThursday = Holiday('9/11', year=2001, month=9, day=13)
 NineElevenFriday = Holiday('9/11', year=2001, month=9, day=14)
 
+# AbstractHolidayCalendar's class attributes determine effective date range of holidays
+AbstractHolidayCalendar.start_date = pd.Timestamp(1970, 1, 1)
+AbstractHolidayCalendar.end_date = pd.Timestamp(2099, 12, 31)   # Default 2030-12-31 doesn't cover bond maturities
+
 
 class BaseTradingCalendar(AbstractHolidayCalendar):
     """ Base calendar containing US holidays that are universally recognized
