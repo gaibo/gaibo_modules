@@ -65,6 +65,92 @@ URL_ASOFDATE_API_FORMAT = '&asOfDate={}'    # ...&asOfDate=20200623
 ETF_FILEDIR = '//bats.com/projects/ProductDevelopment/Database/Production/ETF_Tsy_VIX/ETF Holdings/'
 
 
+def pull_current_holdings_csv(etf_name='TLT', file_dir=None, file_name=None, no_overwrite=True, verbose=True):
+    """ Download iShares ETF holdings file from website and write to disk
+        NOTE: this function always returns freshly downloaded holdings/extra info,
+              even if nothing is written to disk due to no_overwrite setting
+    :param etf_name: 'TLT', 'IEF', etc.
+    :param file_dir: directory to write data file (overrides default directory)
+    :param file_name: exact file name to write to file_dir (overrides default file name)
+    :param no_overwrite: set True to do nothing rather than overwrite existing file
+    :param verbose: set True for explicit print statements
+    :return: (holdings DataFrame, extra info DataFrame) (same as load_holdings_csv)
+    """
+    file_query_url = ETF_FILE_URL_DICT[etf_name]['Holdings']
+    if file_dir is None:
+        file_dir = ETF_FILEDIR
+    # Create placeholder name for downloaded file so we can return its contents without verifying "as of" date
+    today = pd.Timestamp('now').normalize()
+    temp_asof_date = today - BUSDAY_OFFSET  # Guess that file has been updated to the latest available today
+    temp_asof_date_str = temp_asof_date.strftime('%Y-%m-%d')
+    temp_file_name = f'temp_{temp_asof_date_str}_{etf_name}_holdings_temp.csv'
+    temp_full_local_name = f'{file_dir}{temp_file_name}'
+    if file_name is None:
+        # Execute clever plan:
+        #   1) Download file to temporary name
+        #   2) Load file and obtain true "as of" date
+        #   3) Rename file properly using "as of" date
+        # Download file and give it placeholder name
+        download_success = download_file(file_query_url, temp_full_local_name, no_overwrite=False)
+        if not download_success:
+            raise RuntimeError(f"Download failed.\n"
+                               f"\tURL: {file_query_url}\n"
+                               f"\tLocal save name: {temp_full_local_name}")
+        # Open freshly downloaded file to obtain true "as of" date
+        holdings, extra_info = load_holdings_csv(etf_name, file_dir=file_dir, file_name=temp_file_name, verbose=False)
+        asof_date = extra_info['Fund Holdings as of'].squeeze()
+        asof_date_str = asof_date.strftime('%Y-%m-%d')
+        # Rename downloaded file properly
+        file_name = f'{asof_date_str}_{etf_name}_holdings.csv'
+        full_local_name = f'{file_dir}{file_name}'
+        try:
+            os.rename(temp_full_local_name, full_local_name)
+            if verbose:
+                print(f"Renamed {temp_full_local_name} to {full_local_name}.")
+        except FileExistsError:
+            # File with proper name already exists; check overwriting protocol
+            if no_overwrite:
+                os.remove(temp_full_local_name)
+                if verbose:
+                    print("Smart rename failed; file with \"as of\" date already exists.\n"
+                          "Download has been deleted - directory is back to state prior to function call.")
+            else:
+                os.remove(full_local_name)  # Delete existing file so its name can be taken
+                os.rename(temp_full_local_name, full_local_name)
+                if verbose:
+                    print(f"Overwrote {temp_full_local_name} to {full_local_name}.")
+    else:
+        # Rare but simple case: filename to save as is given
+        full_local_name = f'{file_dir}{file_name}'
+        # Download using overwriting protocol
+        download_success = download_file(file_query_url, full_local_name, no_overwrite=no_overwrite)
+        if not download_success:
+            if verbose:
+                print("Download failed, likely because filename already exists.\n"
+                      "Will try downloading to temporary filename.")
+            download_success = download_file(file_query_url, temp_full_local_name, no_overwrite=False)
+            if not download_success:
+                raise RuntimeError(f"Download failed.\n"
+                                   f"\tURL: {file_query_url}\n"
+                                   f"\tLocal save name: {temp_full_local_name}")
+            temp_used = True
+        else:
+            temp_used = False
+        # Open freshly downloaded file
+        if temp_used:
+            holdings, extra_info = \
+                load_holdings_csv(etf_name, file_dir=file_dir, file_name=temp_file_name, verbose=False)
+            os.remove(temp_full_local_name)     # File only downloaded to return contents
+            if verbose:
+                print(f"no_overwriting set to True, so existing file will not be touched.\n"
+                      f"Temporary download file {temp_file_name} has been used and deleted.")
+        else:
+            holdings, extra_info = load_holdings_csv(etf_name, file_dir=file_dir, file_name=file_name, verbose=False)
+            if verbose:
+                print(f"Wrote (or overwrote) file {full_local_name}.")
+    return holdings, extra_info
+
+
 # def pull_holdings_csv(etf_name='TLT', asof_datelike=None,
 #                       file_dir=None, file_name=None, no_overwrite=True, verbose=True):
 #     """ Download iShares ETF holdings file from website and write to disk
@@ -149,7 +235,7 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
                                 if f.endswith(f'_{etf_name}_holdings.csv')])[-1]
     full_local_name = f'{file_dir}{file_name}'
     if verbose:
-        print(f"Local filename to be read: {full_local_name}")
+        print(f"Local file to be read: {full_local_name}")
     # Read regularly-formatted section (skipping first 9 rows)
     # NOTE: '\xa0' (at end of holdings CSV) is a non-breaking space in Latin1 (ISO 8859-1) (value 160)
     # NOTE: files frustratingly give coupon rates imprecisely - that is fixed here
@@ -166,7 +252,7 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
                  | (round(holdings['Coupon (%)'] % 1, 2) == 0.63)
                  | (round(holdings['Coupon (%)'] % 1, 2) == 0.88), 'Coupon (%)'] -= 0.005
     if verbose:
-        print("Holdings section successfully read/formatted.")
+        print("Holdings section successfully formatted.")
     # Read irregularly-formatted section (first 8 rows, 7 if not counting header)
     extra_info = pd.read_csv(full_local_name, nrows=7, na_values=['-']).T
     date_fields = ['Fund Holdings as of', 'Inception Date']
@@ -177,5 +263,6 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
     percent_fields = ['Stock', 'Bond', 'Cash', 'Other']     # NaN in recent files
     extra_info[percent_fields] = extra_info[percent_fields].astype(float)
     if verbose:
-        print("Extra info section successfully read/formatted.")
+        print("Extra info section successfully formatted.")
+        print(f"{file_name} read.")
     return holdings, extra_info
