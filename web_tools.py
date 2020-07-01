@@ -56,18 +56,19 @@ def unzip_gz(zipped_file_dir, file_name, unzipped_file_dir=None, verbose=False):
         return False    # No unzip needed
 
 
-def download_file(url, file_name, verbose=False):
+def download_file(url, file_name, no_overwrite=True, verbose=False):
     """ Retrieve file from given URL and write to local file
-        NOTE: this function checks whether given file name already exists locally
-              and ensures files are never overwritten
+        NOTE: optionally check whether given file name already exists locally
+              and ensure files are never overwritten
         NOTE: requests.get()'s stream=True + iterator used for memory-efficiency
               in case of large files
     :param url: web API URL on which to use requests.get()
     :param file_name: full path name with which to save retrieved file locally
+    :param no_overwrite: set True to do nothing rather than overwrite existing file
     :param verbose: set True for explicit print statements
     :return: True if file was written, False if nothing written
     """
-    if pathlib.Path(file_name).exists():
+    if no_overwrite and pathlib.Path(file_name).exists():
         if verbose:
             print(f"File already exists; will not overwrite: {file_name}")
         return False
