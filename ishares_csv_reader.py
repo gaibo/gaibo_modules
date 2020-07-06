@@ -187,7 +187,8 @@ def pull_current_holdings_csv(etf_name, file_dir=None, file_name=None, no_overwr
     :param etf_name: 'TLT', 'IEF', etc.
     :param file_dir: directory to write data file (overrides default directory)
     :param file_name: exact file name to write to file_dir (overrides default file name)
-    :param no_overwrite: set True to do nothing rather than overwrite existing file
+    :param no_overwrite: set True to never overwrite existing file; instead, a temporary file
+                         will be created and destroyed to retrieve fresh information if needed
     :param verbose: set True for explicit print statements
     :return: (holdings DataFrame, extra info DataFrame) (same as load_holdings_csv)
     """
@@ -249,7 +250,8 @@ def pull_historical_holdings_csv(etf_name, asof_datelike,
     :param asof_datelike: desired "as of" date of information
     :param file_dir: directory to write data file (overrides default directory)
     :param file_name: exact file name to write to file_dir (overrides default file name)
-    :param no_overwrite: set True to do nothing rather than overwrite existing file
+    :param no_overwrite: set True to never overwrite existing file; instead, a temporary file
+                         will be created and destroyed to retrieve fresh information if needed
     :param verbose: set True for explicit print statements
     :return: (holdings DataFrame, extra info DataFrame) (same as load_holdings_csv)
     """
@@ -277,60 +279,25 @@ def pull_historical_holdings_csv(etf_name, asof_datelike,
     return holdings, extra_info
 
 
-# def pull_holdings_csv(etf_name='TLT', asof_datelike=None,
-#                       file_dir=None, file_name=None, no_overwrite=True, verbose=True):
-#     """ Download iShares ETF holdings file from website and write to disk
-#     :param etf_name: 'TLT', 'IEF', etc.
-#     :param asof_datelike: desired "as of" date of information; set None to get latest file
-#     :param file_dir: directory to write data file (overrides default directory)
-#     :param file_name: exact file name to write to file_dir (overrides default file name)
-#     :param no_overwrite: set True to do nothing rather than overwrite existing file
-#     :param verbose: set True for explicit print statements
-#     :return: (holdings DataFrame, extra info DataFrame) (same as load_holdings_csv)
-#     """
-#     # Derive 1) web URL to query, 2) tentative "as of" date of download, 3) local filename of download
-#     file_query_url = ETF_FILE_URL_DICT[etf_name]['Holdings']
-#     if asof_datelike is None:
-#         # Prep to grab latest from website; make temporary guess on "as of" date and correct after download
-#         today = pd.Timestamp('now').normalize()
-#         asof_date = today - BUSDAY_OFFSET   # Guess that file has been updated to the latest available today
-#     else:
-#         # Prep to query website's API specifically for historical files
-#         asof_date = datelike_to_timestamp(asof_datelike)
-#         file_query_url += URL_ASOFDATE_API_FORMAT.format(asof_date.strftime('%Y%m%d'))
-#     asof_date_str = asof_date.strftime('%Y-%m-%d')
-#     if file_dir is None:
-#         file_dir = ETF_FILEDIR
-#     if file_name is None:
-#         file_name = f'{asof_date_str}_{etf_name}_holdings.csv'
-#     temp_full_local_name = f'{file_dir}temp_{file_name}'    # Not finalized, but meant to be unique
-#     if verbose:
-#         print("Pre-download details:\n"
-#               f"\tFile query URL: {file_query_url}\n"
-#               f"\tPresumed \"as of\" date: {asof_date_str}\n"
-#               f"\tTemporary local filename to save as: {temp_full_local_name}")
-#     # Download file and give it temporary name
-#     download_success = download_file(file_query_url, temp_full_local_name)  # Will not overwrite if temp name exists
-#     if verbose:
-#         print(f"{asof_date_str} {etf_name} holdings CSV downloaded: {download_success}")
-#     if not download_success:
-#         raise RuntimeError("Download failed, likely because file with name already exists.")
-#     # Open freshly downloaded file to ensure correctness of "as of" date; correct if needed
-#     holdings, extra_info = load_holdings_csv(etf_name, file_dir=file_dir, file_name=file_name, verbose=False)
-#     correct_asof_date = extra_info['Fund Holdings as of'].squeeze()
-#     if correct_asof_date != asof_date:
-#         # Rename file
-#         correct_asof_date_str = correct_asof_date.strftime('%Y-%m-%d')
-#         correct_file_name = f'{correct_asof_date_str}_{etf_name}_holdings.csv'
-#         correct_full_local_name = f'{file_dir}{correct_file_name}'
-#         try:
-#             # NOTE: this segment of code can lead to successful return statement
-#             os.rename(full_local_name, correct_full_local_name)     # Does nothing if file is open, etc.
-#             if verbose:
-#                 print(f"\"As of\" correction needed! Renamed {full_local_name} to {correct_full_local_name}.")
-#         except FileExistsError:
-#             # No need to rename - file already exists
-#             os.remove(full_local_name)
-#             raise RuntimeError("Rename failed, file with \"as of\" date already exists.\n"
-#                                "Fresh download has been deleted; directory is back to state prior to function call.")
-#     return holdings, extra_info
+def pull_holdings_csv(etf_name='TLT', asof_datelike=None,
+                      file_dir=None, file_name=None, no_overwrite=True, verbose=True):
+    """ Download iShares ETF holdings file from website and write to disk
+        NOTE: distinguishes between current and historical downloads through asof_datelike field
+    :param etf_name: 'TLT', 'IEF', etc.
+    :param asof_datelike: desired "as of" date of information; set None to get current file
+    :param file_dir: directory to write data file (overrides default directory)
+    :param file_name: exact file name to write to file_dir (overrides default file name)
+    :param no_overwrite: set True to never overwrite existing file; instead, a temporary file
+                         will be created and destroyed to retrieve fresh information if needed
+    :param verbose: set True for explicit print statements
+    :return: (holdings DataFrame, extra info DataFrame) (same as load_holdings_csv)
+    """
+    if asof_datelike is None:
+        # No "as of" date specified means current file is desired
+        return pull_current_holdings_csv(etf_name,
+                                         file_dir=file_dir, file_name=file_name,
+                                         no_overwrite=no_overwrite, verbose=verbose)
+    else:
+        return pull_historical_holdings_csv(etf_name, asof_datelike,
+                                            file_dir=file_dir, file_name=file_name,
+                                            no_overwrite=no_overwrite, verbose=verbose)
