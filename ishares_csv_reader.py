@@ -63,6 +63,10 @@ ETF_FILE_URL_DICT = {
 }
 URL_ASOFDATE_API_FORMAT = '&asOfDate={}'    # ...&asOfDate=20200623
 ETF_FILEDIR = '//bats.com/projects/ProductDevelopment/Database/Production/ETF_Tsy_VIX/ETF Holdings/'
+# Hard-code defective data dates ("as of" dates)
+PAR_VALUE_1000_DATES = pd.to_datetime(['2014-12-31', '2015-01-30', '2015-02-27', '2015-03-31', '2015-04-30'])
+VALUE_HALVE_DATES = pd.to_datetime(['2018-03-14'])
+VALUE_HALVE_FIELDS = ['Weight (%)', 'Market Value', 'Notional Value', 'Par Value']
 
 
 def load_holdings_csv(etf_name='TLT', asof_datelike=None,
@@ -120,6 +124,15 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
     if verbose:
         print("Extra info section successfully formatted.")
         print(f"{file_name} read.")
+    # Check for known defective data dates
+    try:
+        asof_date = pd.to_datetime(file_name[:10])
+        if asof_date in PAR_VALUE_1000_DATES:
+            holdings.loc[holdings['Name'] != 'BLK CSH FND TREASURY SL AGENCY', 'Par Value'] *= 1000
+        if asof_date in VALUE_HALVE_DATES:
+            holdings[VALUE_HALVE_FIELDS] /= 2
+    except ValueError:
+        print("WARNING: cannot check for known defective data dates because custom file_name was given.")
     return holdings, extra_info
 
 
