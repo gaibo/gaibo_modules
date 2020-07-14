@@ -185,12 +185,14 @@ def _handle_download_to_temp(etf_name, identifier, file_query_url, file_dir):
     return temp_file_name
 
 
-def _handle_no_overwrite_temp_extraction(etf_name, identifier, file_query_url, file_dir, verbose=True):
+def _handle_no_overwrite_temp_extraction(etf_name, identifier, file_query_url,
+                                         file_dir, load_func, verbose=True):
     """ Helper: Handle situation of extracting data from temporary file then deleting file
     :param etf_name: 'TLT', 'IEF', etc.
     :param identifier: string uniquely identifying file, e.g. 'holdings', 'cashflows'
     :param file_query_url: URL to download from
     :param file_dir: directory to write data file
+    :param load_func: function to load downloaded temporary file by filename
     :param verbose: set True for explicit print statements
     :return: (holdings DataFrame, extra info DataFrame) (same as load_holdings_csv)
     """
@@ -200,15 +202,15 @@ def _handle_no_overwrite_temp_extraction(etf_name, identifier, file_query_url, f
     # Download to temporary file (overwriting allowed to ensure success)
     temp_file_name = _handle_download_to_temp(etf_name, identifier, file_query_url, file_dir)
     # Extract info from freshly downloaded temporary file
-    holdings, extra_info = \
-        load_holdings_csv(etf_name, file_dir=file_dir, file_name=temp_file_name, verbose=False)
+    extracted = \
+        load_func(etf_name, file_dir=file_dir, file_name=temp_file_name, verbose=False)
     # Delete freshly downloaded temporary file
     temp_full_local_name = f'{file_dir}{temp_file_name}'
     os.remove(temp_full_local_name)
     if verbose:
         print(f"no_overwriting was set to True, so existing file was not touched.\n"
               f"Temporary download file {temp_file_name} has been used and deleted.")
-    return holdings, extra_info
+    return extracted
 
 
 def pull_current_holdings_csv(etf_name, file_dir=None, file_name=None, no_overwrite=True, verbose=True):
@@ -265,7 +267,8 @@ def pull_current_holdings_csv(etf_name, file_dir=None, file_name=None, no_overwr
         if not download_success:
             # Try download to temporary file, extract data, then delete file
             holdings, extra_info = \
-                _handle_no_overwrite_temp_extraction(etf_name, 'holdings', file_query_url, file_dir, verbose=verbose)
+                _handle_no_overwrite_temp_extraction(etf_name, 'holdings', file_query_url,
+                                                     file_dir, load_holdings_csv, verbose=verbose)
         else:
             # Open freshly downloaded file
             holdings, extra_info = load_holdings_csv(etf_name, file_dir=file_dir, file_name=file_name, verbose=False)
@@ -301,7 +304,8 @@ def pull_historical_holdings_csv(etf_name, asof_datelike,
     if not download_success:
         # Try download to temporary file, extract data, then delete file
         holdings, extra_info = \
-            _handle_no_overwrite_temp_extraction(etf_name, 'holdings', file_query_url, file_dir, verbose=verbose)
+            _handle_no_overwrite_temp_extraction(etf_name, 'holdings', file_query_url,
+                                                 file_dir, load_holdings_csv, verbose=verbose)
     else:
         # Open freshly downloaded file
         holdings, extra_info = load_holdings_csv(etf_name, file_dir=file_dir, file_name=file_name, verbose=False)
@@ -390,6 +394,101 @@ def get_historical_xls_info(etf_name, asof_datelike,
     if verbose:
         print(f"{file_name} read.")
     return index, nav, div, shares
+
+
+def load_cashflows_csv(etf_name='TLT', asof_datelike=None,
+                       file_dir=None, file_name=None, verbose=True):
+    """ Read iShares ETF cash flows file from disk
+    :param etf_name: 'TLT', 'IEF', etc.
+    :param asof_datelike: desired "as of" date of information; set None to get latest file
+    :param file_dir: directory to search for data file (overrides default directory)
+    :param file_name: exact file name to load from file_dir (overrides default file name)
+    :param verbose: set True for explicit print statements
+    :return: pd.DataFrame
+    """
+    # Derive local filename of specified file
+    if file_dir is None:
+        file_dir = ETF_FILEDIR
+    if file_name is None:
+        if asof_datelike is not None:
+            # Most common case: craft filename from given "as of" date
+            asof_date = datelike_to_timestamp(asof_datelike)
+            asof_date_str = asof_date.strftime('%Y-%m-%d')
+            file_name = f'{asof_date_str}_{etf_name}_cashflows.csv'
+        else:
+            # Nothing is given: prepare latest holdings file available in file_dir
+            file_name = sorted([f for f in os.listdir(file_dir)
+                                if f.endswith(f'_{etf_name}_cashflows.csv')])[-1]
+    full_local_name = f'{file_dir}{file_name}'
+    # Read file
+    cashflows = pd.read_csv(full_local_name, parse_dates=['ASOF_DATE', 'CASHFLOW_DATE'])
+    if verbose:
+        print(f"{file_name} read.")
+    return cashflows
+
+
+def pull_cashflows_csv(etf_name='TLT', file_dir=None, file_name=None, no_overwrite=True, verbose=True):
+    """ Download current iShares ETF cash flows file from website and write to disk
+        NOTE: this function always returns freshly downloaded info,
+              even if nothing is written to disk due to no_overwrite setting
+    :param etf_name: 'TLT', 'IEF', etc.
+    :param file_dir: directory to write data file (overrides default directory)
+    :param file_name: exact file name to write to file_dir (overrides default file name)
+    :param no_overwrite: set True to never overwrite existing file; instead, a temporary file
+                         will be created and destroyed to retrieve fresh information if needed
+    :param verbose: set True for explicit print statements
+    :return: pd.DataFrame (same as load_cashflows_csv)
+    """
+    file_query_url = ETF_FILE_URL_DICT[etf_name]['Cash Flows']
+    if file_dir is None:
+        file_dir = ETF_FILEDIR
+    if file_name is None:
+        # Execute clever plan:
+        #   1) Download file to temporary name
+        #   2) Load file and obtain true "as of" date
+        #   3) Rename file properly using true "as of" date
+        # Download file and give it placeholder name
+        temp_file_name = _handle_download_to_temp(etf_name, 'cashflows', file_query_url, file_dir)
+        temp_full_local_name = f'{file_dir}{temp_file_name}'
+        # Open freshly downloaded file to obtain true "as of" date
+        cashflows = load_cashflows_csv(etf_name, file_dir=file_dir, file_name=temp_file_name, verbose=False)
+        asof_date = cashflows['ASOF_DATE'].iloc[0]
+        asof_date_str = asof_date.strftime('%Y-%m-%d')
+        # Rename downloaded file properly
+        file_name = f'{asof_date_str}_{etf_name}_cashflows.csv'
+        full_local_name = f'{file_dir}{file_name}'
+        try:
+            os.rename(temp_full_local_name, full_local_name)
+            if verbose:
+                print(f"Renamed {temp_full_local_name} to {full_local_name}.")
+        except FileExistsError:
+            # File with proper name already exists; check overwriting protocol
+            if no_overwrite:
+                os.remove(temp_full_local_name)
+                if verbose:
+                    print("Smart rename failed; file with \"as of\" date already exists.\n"
+                          "Download has been deleted - directory is back to state prior to function call.")
+            else:
+                os.remove(full_local_name)  # Delete existing file so its name can be taken
+                os.rename(temp_full_local_name, full_local_name)
+                if verbose:
+                    print(f"Overwrote {temp_full_local_name} to {full_local_name}.")
+    else:
+        # Rare but simple case: filename to save as is given
+        full_local_name = f'{file_dir}{file_name}'
+        # Download using overwriting protocol
+        download_success = download_file(file_query_url, full_local_name, no_overwrite=no_overwrite)
+        if not download_success:
+            # Try download to temporary file, extract data, then delete file
+            cashflows = \
+                _handle_no_overwrite_temp_extraction(etf_name, 'cashflows', file_query_url,
+                                                     file_dir, load_cashflows_csv, verbose=verbose)
+        else:
+            # Open freshly downloaded file
+            cashflows = load_cashflows_csv(etf_name, file_dir=file_dir, file_name=file_name, verbose=False)
+            if verbose:
+                print(f"Wrote (or overwrote) file {full_local_name}.")
+    return cashflows
 
 
 ###############################################################################
