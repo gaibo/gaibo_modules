@@ -67,6 +67,23 @@ ETF_FILEDIR = '//bats.com/projects/ProductDevelopment/Database/Production/ETF_Ts
 PAR_VALUE_1000_DATES = pd.to_datetime(['2014-12-31', '2015-01-30', '2015-02-27', '2015-03-31', '2015-04-30'])
 VALUE_HALVE_DATES = pd.to_datetime(['2018-03-14'])
 VALUE_HALVE_FIELDS = ['Weight (%)', 'Market Value', 'Notional Value', 'Par Value']
+# Hard-code helpful info for reading XLS files
+HISTORICAL_SHEET_START = (
+    '<ss:Worksheet ss:Name="Historical">\n'
+    '<ss:Table>\n'
+    '<ss:Row>\n'
+    '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">As Of</ss:Data>\n</ss:Cell>\n'
+    '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">Index Level</ss:Data>\n</ss:Cell>\n'
+    '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">NAV per Share</ss:Data>\n</ss:Cell>\n'
+    '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">Ex-Dividends</ss:Data>\n</ss:Cell>\n'
+    '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">Shares Outstanding</ss:Data>\n</ss:Cell>\n'
+    '</ss:Row>\n'
+)
+AGNOSTIC_FIELD_START = '<ss:Data ss:Type='
+NUM_FIELD_START = '<ss:Data ss:Type="Number">'
+STR_FIELD_START = '<ss:Data ss:Type="String">'
+FIELD_END = '</ss:Data>'
+LEN_FIELD_START = 26    # Take advantage of len(NUM_FIELD_START) == len(STR_FIELD_START)
 
 
 def load_holdings_csv(etf_name='TLT', asof_datelike=None,
@@ -132,7 +149,8 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
         if asof_date in VALUE_HALVE_DATES:
             holdings[VALUE_HALVE_FIELDS] /= 2
     except ValueError:
-        print("WARNING: cannot check for known defective data dates because custom file_name was given.")
+        if verbose:
+            print("WARNING: cannot check for known defective data dates because custom file_name was given.")
     return holdings, extra_info
 
 
@@ -314,3 +332,69 @@ def pull_holdings_csv(etf_name='TLT', asof_datelike=None,
         return pull_historical_holdings_csv(etf_name, asof_datelike,
                                             file_dir=file_dir, file_name=file_name,
                                             no_overwrite=no_overwrite, verbose=verbose)
+
+
+def get_historical_xls_info(etf_name, asof_datelike,
+                            file_dir=None, file_name=None, verbose=True):
+    """ Read historical information from latest iShares XLS file from disk
+        NOTE: iShares XLS files are created in XML that is close to an awful early-Excel format
+              called XML Spreadsheet 2003 (they are misnamed as .xls), so we parse them manually
+    :param etf_name: 'TLT', 'IEF', etc.
+    :param asof_datelike: desired "as of" date of information
+    :param file_dir: directory to search for data file (overrides default directory)
+    :param file_name: exact file name to load from file_dir (overrides default file name)
+    :param verbose: set True for explicit print statements
+    :return: (index level, NAV per share, ex-dividends, shares outstanding)
+    """
+    asof_date = datelike_to_timestamp(asof_datelike)
+    # Derive local filename of relevant XLS file
+    if file_dir is None:
+        file_dir = ETF_FILEDIR
+    if file_name is None:
+        # Use latest XLS file available in file_dir (does not depend on "as of" date)
+        file_name = sorted([f for f in os.listdir(file_dir)
+                            if f.endswith(f'_{etf_name}.xls')])[-1]
+    # Open XLS file and parse by raw string
+    full_local_name = f'{file_dir}{file_name}'
+    with open(full_local_name) as f:
+        f_text = f.read()  # Extract all contents of file to string
+        hist_sheet_loc = f_text.find(HISTORICAL_SHEET_START)  # Find Historical sheet for starting point
+        asof_date_str = asof_date.strftime('%b %d, %Y')
+        asof_date_loc = f_text.find(asof_date_str, hist_sheet_loc, -1)  # Find date in Historical sheet
+        if asof_date_loc == -1:
+            raise ValueError(f"\"as of\" date '{asof_date_str}' could not be found in {file_name}")
+        # Extract index level (1st field; Number)
+        index_start = f_text.find(NUM_FIELD_START, asof_date_loc, -1) + LEN_FIELD_START
+        index_end = f_text.find(FIELD_END, index_start, -1)
+        index = float(f_text[index_start:index_end])
+        # Extract NAV per share (2nd field; Number)
+        nav_start = f_text.find(NUM_FIELD_START, index_end, -1) + LEN_FIELD_START
+        nav_end = f_text.find(FIELD_END, nav_start, -1)
+        nav = float(f_text[nav_start:nav_end])
+        # Extract ex-dividends (3rd field; String '--' if none, Number if exists)
+        div_agnostic_field_start = f_text.find(AGNOSTIC_FIELD_START, nav_end, -1)
+        div_start = div_agnostic_field_start + LEN_FIELD_START  # Assume field is either string or number
+        div_field_start = f_text[div_agnostic_field_start:div_start]
+        if div_field_start == STR_FIELD_START:
+            div = 0.0   # Don't bother reading the '--'
+        elif div_field_start == NUM_FIELD_START:
+            div_end = f_text.find(FIELD_END, div_start, -1)
+            div = float(f_text[div_start:div_end])
+        else:
+            raise ValueError(f"{asof_date_str} div_field_start indicates neither "
+                             f"String nor Number: '{div_field_start}'")
+        # Extract shares outstanding (4th field; Number)
+        shares_start = f_text.find(NUM_FIELD_START, div_start, -1) + LEN_FIELD_START
+        shares_end = f_text.find(FIELD_END, shares_start, -1)
+        shares = float(f_text[shares_start:shares_end])
+    if verbose:
+        print(f"{file_name} read.")
+    return index, nav, div, shares
+
+
+###############################################################################
+
+if __name__ == '__main__':
+    assert get_historical_xls_info('TLT', '2020-06-01') == (150.197131, 162.293398, 0.210189, 113000000.0)
+    assert get_historical_xls_info('TLT', '2020-06-05') == (143.930002, 155.544228, 0.0, 110600000.0)
+    assert get_historical_xls_info('TLT', '2020-06-08') == (144.609098, 156.275692, 0.0, 110100000.0)

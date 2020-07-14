@@ -413,4 +413,3 @@ if __name__ == '__main__':
         print("****FAILED 2****")
     if not np.isclose((1 + test_bey/100/2)**2, 1 + test_apy/100):
         print("****FAILED 3****")
-    pass
