@@ -115,18 +115,30 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
     # Read regularly-formatted section (skipping first 9 rows)
     # NOTE: '\xa0' (at end of holdings CSV) is a non-breaking space in Latin1 (ISO 8859-1) (value 160)
     # NOTE: files frustratingly give coupon rates imprecisely - that is fixed here
-    holdings = pd.read_csv(full_local_name,
-                           skiprows=range(9),
-                           dtype={'Weight (%)': float, 'Price': float, 'Market Value': float,
-                                  'Notional Value': float, 'Coupon (%)': float, 'YTM (%)': float,
-                                  'Yield to Worst (%)': float, 'Duration': float, 'Par Value': float},
-                           thousands=',',
-                           na_values=['-', '\xa0'],
-                           parse_dates=['Maturity']).dropna(how='all')
-    holdings.loc[(round(holdings['Coupon (%)'] % 1, 2) == 0.13)
-                 | (round(holdings['Coupon (%)'] % 1, 2) == 0.38)
-                 | (round(holdings['Coupon (%)'] % 1, 2) == 0.63)
-                 | (round(holdings['Coupon (%)'] % 1, 2) == 0.88), 'Coupon (%)'] -= 0.005
+    # NOTE: at start of 2020-07, iShares reformatted columns; try-except has been added to patch code
+    try:
+        holdings = pd.read_csv(full_local_name,
+                               skiprows=range(9),
+                               thousands=',',
+                               na_values=['-', '\xa0'],
+                               parse_dates=['Maturity']).dropna(how='all')
+    except ValueError:
+        # No "Maturity" column
+        holdings = pd.read_csv(full_local_name,
+                               skiprows=range(9),
+                               thousands=',',
+                               na_values=['-', '\xa0']).dropna(how='all')
+        if verbose:
+            print("WARNING: Holdings section has no \"Maturity\" column.")
+    try:
+        holdings.loc[(round(holdings['Coupon (%)'] % 1, 2) == 0.13)
+                     | (round(holdings['Coupon (%)'] % 1, 2) == 0.38)
+                     | (round(holdings['Coupon (%)'] % 1, 2) == 0.63)
+                     | (round(holdings['Coupon (%)'] % 1, 2) == 0.88), 'Coupon (%)'] -= 0.005
+    except KeyError:
+        # No "Coupon (%) column
+        if verbose:
+            print("WARNING: Holdings section has no \"Coupon (%)\" column.")
     if verbose:
         print("Holdings section successfully formatted.")
     # Read irregularly-formatted section (first 8 rows, 7 if not counting header)
@@ -135,7 +147,11 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
     for date_field in date_fields:
         # No vectorized way to modify multiple columns' dtypes
         extra_info[date_field] = pd.to_datetime(extra_info[date_field])
-    extra_info['Shares Outstanding'] = float(extra_info['Shares Outstanding'].squeeze().replace(',', ''))
+    try:
+        extra_info['Shares Outstanding'] = float(extra_info['Shares Outstanding'].squeeze().replace(',', ''))
+    except AttributeError:
+        if verbose:
+            print("WARNING: Extra section has no \"Shares Outstanding\" info; likely has no info at all.")
     percent_fields = ['Stock', 'Bond', 'Cash', 'Other']     # NaN in recent files
     extra_info[percent_fields] = extra_info[percent_fields].astype(float)
     if verbose:
