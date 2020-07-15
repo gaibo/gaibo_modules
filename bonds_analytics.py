@@ -11,6 +11,7 @@ NOTESBONDS_UNIVERSE_HISTORY_FILEDIR = 'P:/ProductDevelopment/Database/Production
 
 def get_coupon_status(maturity_datelike, settle_datelike):
     """ Derive current semiannual coupon period details - start, end, number of days, elapsed days
+        NOTE: if settlement date is a coupon date, next_coupon_date is the next one
     :param maturity_datelike: maturity date of bond used as basis for coupon schedule
     :param settle_datelike: settlement date of bond (business day after trade date) used for coupon accrual
     :return: (previous coupon date, next coupon date,
@@ -34,6 +35,21 @@ def get_coupon_status(maturity_datelike, settle_datelike):
     days_in_period = next_coupon_date - prev_coupon_date
     days_since_coupon = elapsed_days[prev_idx]
     return prev_coupon_date, next_coupon_date, days_in_period.days, days_since_coupon.days
+
+
+def create_coupon_schedule(maturity_datelike, settle_datelike):
+    """ Create sequence of remaining coupon dates after (not including) settlement date
+        NOTE: does not account for holidays - just straight gives 15th of month or end-of-month;
+              in actuality, though accrual is determined this way, cash wouldn't move until next business day
+        NOTE: pd.date_range() is perfectly usable for this purpose due to empirical fact that all
+              Treasury notes and bonds have coupons on either the 15th or end-of-month;
+              in fact, bonds and 10-year notes only use 15th, while 2-, 4-, 5-, 7-year notes can use EOM
+    :param maturity_datelike: maturity date of bond used as basis for coupon schedule
+    :param settle_datelike: settlement date of bond (business day after trade date) used for coupon accrual
+    :return: pd.DatetimeIndex (from pd.date_range())
+    """
+    _, next_coupon_date, _, _ = get_coupon_status(maturity_datelike, settle_datelike)
+    return pd.date_range(next_coupon_date, maturity_datelike, freq='12SM-15')   # pd.offsets.SemiMonthEnd(n=12)
 
 
 def clean_to_dirty(price, coupon, maturity_datelike, settle_datelike, reverse=False):
