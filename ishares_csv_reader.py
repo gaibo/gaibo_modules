@@ -617,7 +617,7 @@ def get_cashflows_from_holdings(etf_name='TLT', asof_datelike=None, file_dir=Non
     # Calculate implied cash
     # NOTE: implied cash must be reduced on ex-dividend date by distribution amount
     bond_mv = notesbonds['Market Value'].sum()
-    _, nav_per_share, _, _ = get_historical_xls_info('TLT', asof_date)
+    _, nav_per_share, _, _ = get_historical_xls_info('TLT', asof_date, verbose=False)
     if not live_calc:
         # If calculating historically, get dividends from iShares XLS which updates at end of each trade date
         try:
@@ -655,6 +655,28 @@ def get_cashflows_from_holdings(etf_name='TLT', asof_datelike=None, file_dir=Non
 ###############################################################################
 
 if __name__ == '__main__':
-    assert get_historical_xls_info('TLT', '2020-06-01') == (150.197131, 162.293398, 0.210189, 113000000.0)
-    assert get_historical_xls_info('TLT', '2020-06-05') == (143.930002, 155.544228, 0.0, 110600000.0)
-    assert get_historical_xls_info('TLT', '2020-06-08') == (144.609098, 156.275692, 0.0, 110100000.0)
+    # Test get_historical_xls_info() to known examples
+    assert (get_historical_xls_info('TLT', '2020-06-01', verbose=False)
+            == (150.197131, 162.293398, 0.210189, 113000000.0))
+    assert (get_historical_xls_info('TLT', '2020-06-05', verbose=False)
+            == (143.930002, 155.544228, 0.0, 110600000.0))
+    assert (get_historical_xls_info('TLT', '2020-06-08', verbose=False)
+            == (144.609098, 156.275692, 0.0, 110100000.0))
+
+    # Compare get_cashflows_from_holdings() to official iShares cash flow files
+    test_asof_date = '2020-07-10'
+    # In-house
+    test_cashflows_inhouse = get_cashflows_from_holdings('TLT', test_asof_date,
+                                                         live_calc=False, shift_shares=False, verbose=False)
+    # Official
+    raw_cashflows = load_cashflows_csv('TLT', test_asof_date, verbose=False)
+    test_cashflows = (raw_cashflows.loc[raw_cashflows['CALL_TYPE'] == 'MATURITY',
+                                        ['CASHFLOW_DATE', 'INTEREST', 'PRINCIPAL', 'CASHFLOW']]
+                      .set_index('CASHFLOW_DATE'))
+    # Compare
+    diffs = (test_cashflows - test_cashflows_inhouse.round(3)).round(3).abs().sum()
+    print(f"Difference in $ between in-house and official iShares cashflows:\n{diffs}")
+    if diffs['INTEREST'] > 0:
+        raise AssertionError(f"INTEREST DIFFERENCE FOUND: ${diffs['INTEREST']:.2f}")
+    if diffs['PRINCIPAL'] > 10:
+        raise AssertionError(f"PRINCIPAL DIFFERENCE >$10 FOUND: ${diffs['PRINCIPAL']:.2f}")
