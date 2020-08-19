@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import pdblp
-from options_futures_expirations_v3 import datelike_to_timestamp
+from options_futures_expirations_v3 import datelike_to_timestamp, next_month_first_day, next_quarterly_month
 
 BLOOMBERG_PULLS_FILEDIR = 'P:/PrdDevSharedDB/BBG Pull Scripts/'
 TREASURY_FUT_CSV_FILENAME = 'treasury_futures_pull.csv'
@@ -85,26 +85,30 @@ def create_bloomberg_connection(debug=False, port=8194, timeout=25000):
     return con
 
 
-def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_current=True,
+def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_current=True, n_maturities_past_end=3,
                     contract_cycle='quarterly', product_type='Comdty',
-                    bloomberg_con=None, file_dir='', file_name='temp_bbg_fut_prices.csv'):
+                    bloomberg_con=None, file_dir='', file_name='temp_bbg_fut_prices.csv', verbose=True):
     """ Pull generic futures prices from Bloomberg Terminal and write them to disk
     :param fut_code: code for the futures; e.g. 'TY', 'FV', 'SER', 'SFR', 'IBY', 'IHB'
     :param start_datelike: date-like representation of start date
     :param end_datelike: date-like representation of end date; set None for present day
     :param end_year_current: set True to treat end date's year as current year; important because Bloomberg
                              futures tickers have single-digit year format for current year (rather than double)
+    :param n_maturities_past_end: number of current maturities (after price end date) to query for
     :param contract_cycle: 'quarterly' or 'monthly'
     :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.
     :param bloomberg_con: active pdblp Bloomberg connection; if None, runs create_bloomberg_connection()
     :param file_dir: directory to write data file; set None for current directory
     :param file_name: file name to write to file_dir
+    :param verbose: set True for explicit print statements
     :return: pd.DataFrame with all futures prices between start and end dates, stored in matrix
     """
     # Determine start and end dates for price pull
     start_date = datelike_to_timestamp(start_datelike)
     if end_datelike is None:
         end_date = pd.Timestamp('now').normalize()
+        if verbose:
+            print(f"End date inferred to be {end_date.strftime('%Y-%m-%d')}")
     else:
         end_date = datelike_to_timestamp(end_datelike)
 
@@ -118,6 +122,8 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
         month_code_list = MONTHLY_CODE_LIST
     else:
         raise ValueError(f"contract_cycle must be 'quarterly' or 'monthly'")
+    if verbose:
+        print(f"'{contract_cycle}' cycle containing letters {month_code_list} will be used")
     # 2) Determine cycle months in first and last year (probably won't have complete years)
     # NOTE: cutting off at the end month is not crucial, since futures usually extend forward many months
     start_month_code = EXPMONTH_CODE_DICT[start_date.month]
@@ -135,6 +141,8 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
         for month_code in month_code_list[start_month_idx:end_month_idx]:
             ticker = fut_code + month_code + year_code + product_code
             ticker_list.append(ticker)
+        if verbose:
+            print(f"Simple base case: all price dates within one year;\n\t{len(ticker_list)} tickers: {ticker_list}")
     else:
         # Complex case: pulling futures across multiple years
         # First year: cycle months limited by start date
@@ -156,6 +164,33 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
         for month_code in month_code_list[:end_month_idx]:
             ticker = fut_code + month_code + year_code + product_code
             ticker_list.append(ticker)
+        if verbose:
+            print(f"Complex base case: price dates span multiple years;\n\t{len(ticker_list)} tickers: {ticker_list}")
+
+    # Add additional "current" maturities to the list
+    if n_maturities_past_end > 0:
+        additional_months = []
+        if contract_cycle == 'quarterly':
+            # Obtain last quarterly month already included, then go further
+            most_recent_included = next_quarterly_month(end_date, quarter_return_self=True)
+            upcoming_not_included = next_quarterly_month(most_recent_included)
+            for additional_mat in range(0, n_maturities_past_end):
+                additional_months.append(upcoming_not_included)
+                upcoming_not_included = next_quarterly_month(upcoming_not_included)
+        elif contract_cycle == 'monthly':
+            upcoming_not_included = next_month_first_day(end_date)
+            for additional_mat in range(0, n_maturities_past_end):
+                additional_months.append(upcoming_not_included)
+                upcoming_not_included = next_month_first_day(upcoming_not_included)
+        additional_ticker_list = []
+        for additional in additional_months:
+            year_code = f'{additional.year%10}'   # Single digit year code for futures with maturity past the present
+            month_code = EXPMONTH_CODE_DICT[additional.month]
+            ticker = fut_code + month_code + year_code + product_code
+            additional_ticker_list.append(ticker)
+        ticker_list += additional_ticker_list
+        if verbose:
+            print(f"{n_maturities_past_end} additional tickers past end date:\n\t{additional_ticker_list}")
 
     # Get last price time-series of every ticker
     bbg_start_dt = start_date.strftime('%Y%m%d')
@@ -163,11 +198,20 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
     if bloomberg_con is None:
         bloomberg_con = create_bloomberg_connection()
         must_close_con = True
+        if verbose:
+            print(f"New Bloomberg connection created")
     else:
         must_close_con = False
-    fut_price_df = bloomberg_con.bdh(ticker_list, 'PX_LAST', start_date=bbg_start_dt, end_date=bbg_end_dt)
+        if verbose:
+            print(f"Existing Bloomberg connection given")
+    try:
+        fut_price_df = bloomberg_con.bdh(ticker_list, 'PX_LAST', start_date=bbg_start_dt, end_date=bbg_end_dt)
+    except ValueError:
+        raise ValueError(f"pull unsuccessful. here is list of tickers attempted:\n{ticker_list}")
     if must_close_con:
         bloomberg_con.stop()    # Close connection iff it was specifically made for this
+        if verbose:
+            print(f"New Bloomberg connection closed")
 
     # Export and return results matrix
     fut_price_df.to_csv(file_dir + file_name)
