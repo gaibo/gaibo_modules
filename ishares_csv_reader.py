@@ -5,7 +5,7 @@ from bonds_analytics import create_coupon_schedule
 from web_tools import download_file
 import os
 import warnings
-from pandas.errors import PerformanceWarning
+from pandas.errors import EmptyDataError, PerformanceWarning
 
 ETF_NAMES = ['SHY', 'IEI', 'IEF', 'TLH', 'TLT']
 # SHY: 1-3 year Treasury bond ETF
@@ -126,6 +126,11 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
                                thousands=',',
                                na_values=['-', '\xa0'],
                                parse_dates=['Maturity']).dropna(how='all')
+    except EmptyDataError:
+        # Completely empty file - perhaps date is not a business date
+        if verbose:
+            print(f"WARNING: {full_local_name} appears to be completely empty.")
+        return None, None
     except ValueError:
         # No "Maturity" column
         holdings = pd.read_csv(full_local_name,
@@ -170,7 +175,7 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
         #     holdings[VALUE_HALVE_FIELDS] /= 2
     except ValueError:
         if verbose:
-            print("WARNING: cannot check for known defective data dates because custom file_name was given.")
+            print("WARNING: Cannot check for known defective data dates because custom file_name was given.")
     return holdings, extra_info
 
 
@@ -258,6 +263,11 @@ def pull_current_holdings_csv(etf_name, file_dir=None, file_name=None, no_overwr
         temp_full_local_name = f'{file_dir}{temp_file_name}'
         # Open freshly downloaded file to obtain true "as of" date
         holdings, extra_info = load_holdings_csv(etf_name, file_dir=file_dir, file_name=temp_file_name, verbose=False)
+        if extra_info is None:
+            if verbose:
+                print(f"WARNING: Downloaded holdings file {temp_full_local_name} appears to be empty.\n"
+                      f"         Temporary file will not be renamed. Please dispose of it manually.")
+            return holdings, extra_info
         asof_date = extra_info['Fund Holdings as of'].squeeze()
         asof_date_str = asof_date.strftime('%Y-%m-%d')
         # Rename downloaded file properly
@@ -472,6 +482,11 @@ def pull_cashflows_csv(etf_name='TLT', file_dir=None, file_name=None, no_overwri
         temp_full_local_name = f'{file_dir}{temp_file_name}'
         # Open freshly downloaded file to obtain true "as of" date
         cashflows = load_cashflows_csv(etf_name, file_dir=file_dir, file_name=temp_file_name, verbose=False)
+        if cashflows.empty:
+            if verbose:
+                print(f"WARNING: Downloaded cashflows file {temp_full_local_name} appears to be empty.\n"
+                      f"         Temporary file will not be renamed. Please dispose of it manually.")
+            return cashflows
         asof_date = cashflows['ASOF_DATE'].iloc[0]
         asof_date_str = asof_date.strftime('%Y-%m-%d')
         # Rename downloaded file properly
