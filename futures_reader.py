@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from collections.abc import Iterable
 import pdblp
 from options_futures_expirations_v3 import datelike_to_timestamp, next_month_first_day, next_quarterly_month
 
@@ -85,10 +86,82 @@ def create_bloomberg_connection(debug=False, port=8194, timeout=25000):
     return con
 
 
-def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_current=True, n_maturities_past_end=3,
-                    contract_cycle='quarterly', product_type='Comdty',
-                    bloomberg_con=None, file_dir='', file_name='temp_bbg_fut_prices.csv', verbose=True):
-    """ Pull generic futures prices from Bloomberg Terminal and write them to disk
+def reformat_pdblp_ticker_field_value(tfv_format, ticker_index=None):
+    """ Reformat pdblp real-time output DataFrame format into something more readable
+    :param tfv_format: DataFrame with numerical index (unindexed) and 'ticker',
+                       'field', and 'value' columns
+    :param ticker_index: desired ordering of tickers in the output, reformatted DataFrame
+    :return: pd.DataFrame with 'ticker' index and columns named after fields
+    """
+    if tfv_format.empty:
+        print("WARNING: reformat_pdblp_ticker_field_value() input empty!")
+        return tfv_format.copy()
+    fields = tfv_format['field'].unique()
+    fields_dict = {}
+    for field in fields:
+        fields_dict[field] = (tfv_format[tfv_format['field'] == field]
+                              .drop('field', axis=1).set_index('ticker')['value'])
+    result_df = pd.DataFrame(fields_dict, index=ticker_index)
+    result_df.index.name = 'ticker'     # Important when exporting to CSV
+    return result_df
+
+
+def reformat_pdblp_bdh(bdh_format, ticker_index=None, squeeze=False):
+    """ Reformat pdblp historical output DataFrame format into something more readable
+    :param bdh_format: DataFrame with index of 'date', wherein each date contains a DataFrame
+                       that is comparable to the tfv_format of reformat_pdblp_ticker_field_value()
+    :param ticker_index: desired ordering of tickers in the output, reformatted DataFrame
+    :param squeeze: set True to drop 'date' index in the output, reformatted DataFrame if
+                    and only if input DataFrame contains only one date's worth of data
+    :return: pd.DataFrame with 'date' index, wherein each date contains a DataFrame with
+             'ticker' index and columns named after fields
+    """
+    if bdh_format.empty:
+        print("WARNING: reformat_pdblp_bdh() input empty!")
+        return bdh_format.copy()
+    bdh_days = bdh_format.index
+    bdh_days_list = []
+    for bdh_day in bdh_days:
+        # Model each date's data into "tfv_format" to use reformat_pdblp_ticker_field_value()
+        tfv_format = bdh_format.loc[bdh_day].reset_index().rename({bdh_day: 'value'}, axis=1)
+        bdh_day_format = (reformat_pdblp_ticker_field_value(tfv_format, ticker_index=ticker_index)
+                          .reset_index().assign(date=bdh_day).set_index(['date', 'ticker']))
+        bdh_days_list.append(bdh_day_format)
+    result_df = pd.concat(bdh_days_list)
+    if len(bdh_days) == 1 and squeeze:
+        return result_df.reset_index('date', drop=True)
+    else:
+        return result_df
+
+
+def reformat_pdblp(pdblp_result, ticker_index=None, is_bdh=False, squeeze=False):
+    """ Reformat pdblp output into something more readable - combination of
+        reformat_pdblp_ticker_field_value() and reformat_pdblp_bdh()
+    :param pdblp_result: resulting DataFrame of a pdblp Bloomberg query
+    :param ticker_index: desired ordering of tickers in the output, reformatted DataFrame
+    :param is_bdh: set True to indicate that pdblp data is BDH (historical daily data; con.bdh);
+                   set False to indicate that it is BDP (real-time snapshot data; con.ref)
+    :param squeeze: only applicable if pdblp data is BDH (i.e. is_bdh=True);
+                    set True to drop 'date' index in the output, reformatted DataFrame if
+                    and only if input DataFrame contains only one date's worth of data
+    :return: pd.DataFrame with 'date' index (if BDH), wherein each date contains a DataFrame
+             with 'ticker' index and columns named after fields
+    """
+    if pdblp_result.empty:
+        print("WARNING: reformat_pdblp() input empty!")
+        return pdblp_result.copy()
+    if is_bdh:
+        result_df = reformat_pdblp_bdh(pdblp_result, ticker_index=ticker_index, squeeze=squeeze)
+    else:
+        result_df = reformat_pdblp_ticker_field_value(pdblp_result, ticker_index=ticker_index)
+    return result_df
+
+
+def _create_futures_ticker_list_single_fut_code(
+        fut_code, start_datelike, end_datelike=None, end_year_current=True,
+        n_maturities_past_end=3, contract_cycle='quarterly', product_type='Comdty', verbose=True):
+    """ Generate list of relevant futures tickers for use with Bloomberg
+        NOTE: single-element version; fut_code cannot be an iterable
     :param fut_code: code for the futures; e.g. 'TY', 'FV', 'SER', 'SFR', 'IBY', 'IHB'
     :param start_datelike: date-like representation of start date
     :param end_datelike: date-like representation of end date; set None for present day
@@ -97,11 +170,8 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
     :param n_maturities_past_end: number of current maturities (after price end date) to query for
     :param contract_cycle: 'quarterly' or 'monthly'
     :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.
-    :param bloomberg_con: active pdblp Bloomberg connection; if None, runs create_bloomberg_connection()
-    :param file_dir: directory to write data file; set None for current directory
-    :param file_name: file name to write to file_dir
     :param verbose: set True for explicit print statements
-    :return: pd.DataFrame with all futures prices between start and end dates, stored in matrix
+    :return: list of futures tickers
     """
     # Determine start and end dates for price pull
     start_date = datelike_to_timestamp(start_datelike)
@@ -113,7 +183,7 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
         end_date = datelike_to_timestamp(end_datelike)
 
     # Create list of all futures Bloomberg tickers in use between start and end dates
-    ticker_list = []    # Master list
+    ticker_list = []  # Master list
     # 1) Determine set of months in the cycle
     # (e.g. Treasury futures are only listed quarterly; 1-month SOFR is listed monthly)
     if contract_cycle == 'quarterly':
@@ -129,15 +199,15 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
     start_month_code = EXPMONTH_CODE_DICT[start_date.month]
     start_month_idx = np.searchsorted(month_code_list, start_month_code)
     end_month_code = EXPMONTH_CODE_DICT[end_date.month]
-    end_month_idx = np.searchsorted(month_code_list, end_month_code) + 1    # +1 to be inclusive of end month
+    end_month_idx = np.searchsorted(month_code_list, end_month_code) + 1  # +1 to be inclusive of end month
     # 3) Generate tickers as appropriate to very specific situation
-    product_code = f' {product_type}'   # Product type is static
+    product_code = f' {product_type}'  # Product type is static
     if start_date.year == end_date.year:
         # Simple case: only pulling futures within a year
         if end_year_current:
-            year_code = f'{end_date.year%10}'   # Alter year code to single digit
+            year_code = f'{end_date.year % 10}'  # Alter year code to single digit
         else:
-            year_code = f'{end_date.year%100:02d}'  # Use double digit year code as with historical years
+            year_code = f'{end_date.year % 100:02d}'  # Use double digit year code as with historical years
         for month_code in month_code_list[start_month_idx:end_month_idx]:
             ticker = fut_code + month_code + year_code + product_code
             ticker_list.append(ticker)
@@ -146,21 +216,21 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
     else:
         # Complex case: pulling futures across multiple years
         # First year: cycle months limited by start date
-        year_code = f'{start_date.year%100:02d}'
+        year_code = f'{start_date.year % 100:02d}'
         for month_code in month_code_list[start_month_idx:]:
             ticker = fut_code + month_code + year_code + product_code
             ticker_list.append(ticker)
         # Middle years (if any): all cycle months
-        for year in range(start_date.year+1, end_date.year):
-            year_code = f'{year%100:02d}'
+        for year in range(start_date.year + 1, end_date.year):
+            year_code = f'{year % 100:02d}'
             for month_code in month_code_list:
                 ticker = fut_code + month_code + year_code + product_code
                 ticker_list.append(ticker)
         # Final year: year code potentially single digit, cycle months limited by end date
         if end_year_current:
-            year_code = f'{end_date.year%10}'   # Alter year code to single digit
+            year_code = f'{end_date.year % 10}'  # Alter year code to single digit
         else:
-            year_code = f'{end_date.year%100:02d}'  # Use double digit year code as with historical years
+            year_code = f'{end_date.year % 100:02d}'  # Use double digit year code as with historical years
         for month_code in month_code_list[:end_month_idx]:
             ticker = fut_code + month_code + year_code + product_code
             ticker_list.append(ticker)
@@ -184,13 +254,77 @@ def pull_fut_prices(fut_code, start_datelike, end_datelike=None, end_year_curren
                 upcoming_not_included = next_month_first_day(upcoming_not_included)
         additional_ticker_list = []
         for additional in additional_months:
-            year_code = f'{additional.year%10}'   # Single digit year code for futures with maturity past the present
+            year_code = f'{additional.year % 10}'  # Single digit year code for futures with maturity past the present
             month_code = EXPMONTH_CODE_DICT[additional.month]
             ticker = fut_code + month_code + year_code + product_code
             additional_ticker_list.append(ticker)
         ticker_list += additional_ticker_list
         if verbose:
             print(f"{n_maturities_past_end} additional tickers past end date:\n\t{additional_ticker_list}")
+
+    return ticker_list
+
+
+def create_futures_ticker_list(fut_codes, start_datelike, end_datelike=None,
+                               end_year_current=True, n_maturities_past_end=3, contract_cycle='quarterly',
+                               product_type='Comdty', verbose=True):
+    """ Generate list of relevant futures tickers for use with Bloomberg
+        NOTE: only difference from single-element version is fut_codes can be iterable
+    :param fut_codes: code(s) for the futures; e.g. 'TY', ['FV', 'SER'], ('SFR', 'IBY', 'IHB')
+    :param start_datelike: date-like representation of start date
+    :param end_datelike: date-like representation of end date; set None for present day
+    :param end_year_current: set True to treat end date's year as current year; important because Bloomberg
+                             futures tickers have single-digit year format for current year (rather than double)
+    :param n_maturities_past_end: number of current maturities (after price end date) to query for
+    :param contract_cycle: 'quarterly' or 'monthly'
+    :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.
+    :param verbose: set True for explicit print statements
+    :return: list of futures tickers
+    """
+    if isinstance(fut_codes, Iterable):
+        list_of_ticker_lists = \
+            [_create_futures_ticker_list_single_fut_code(fut_code, start_datelike, end_datelike,
+                                                         end_year_current, n_maturities_past_end, contract_cycle,
+                                                         product_type, verbose)
+             for fut_code in fut_codes]
+        return [ticker for ticker_list in list_of_ticker_lists for ticker in ticker_list]   # Flatten
+    else:
+        return _create_futures_ticker_list_single_fut_code(fut_codes, start_datelike, end_datelike,
+                                                           end_year_current, n_maturities_past_end, contract_cycle,
+                                                           product_type, verbose)
+
+
+def pull_fut_prices(fut_codes, start_datelike, end_datelike=None, end_year_current=True,
+                    n_maturities_past_end=3, contract_cycle='quarterly', product_type='Comdty',
+                    file_dir='', file_name='temp_bbg_fut_prices.csv', bloomberg_con=None, verbose=True):
+    """ Pull generic futures prices from Bloomberg Terminal and write them to disk
+    :param fut_codes: code(s) for the futures; e.g. 'TY', ['FV', 'SER'], ('SFR', 'IBY', 'IHB')
+    :param start_datelike: date-like representation of start date
+    :param end_datelike: date-like representation of end date; set None for present day
+    :param end_year_current: set True to treat end date's year as current year; important because Bloomberg
+                             futures tickers have single-digit year format for current year (rather than double)
+    :param n_maturities_past_end: number of current maturities (after price end date) to query for
+    :param contract_cycle: 'quarterly' or 'monthly'
+    :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.
+    :param file_dir: directory to write data file; set None for current directory
+    :param file_name: file name to write to file_dir
+    :param bloomberg_con: active pdblp Bloomberg connection; if None, runs create_bloomberg_connection()
+    :param verbose: set True for explicit print statements
+    :return: pd.DataFrame with all futures prices between start and end dates, stored in matrix
+    """
+    # Determine start and end dates for price pull
+    start_date = datelike_to_timestamp(start_datelike)
+    if end_datelike is None:
+        end_date = pd.Timestamp('now').normalize()
+        if verbose:
+            print(f"End date inferred to be {end_date.strftime('%Y-%m-%d')}")
+    else:
+        end_date = datelike_to_timestamp(end_datelike)
+
+    # Create list of futures tickers
+    ticker_list = create_futures_ticker_list(fut_codes, start_date, end_date,
+                                             end_year_current, n_maturities_past_end, contract_cycle,
+                                             product_type, verbose=verbose)
 
     # Get last price time-series of every ticker
     bbg_start_dt = start_date.strftime('%Y%m%d')
