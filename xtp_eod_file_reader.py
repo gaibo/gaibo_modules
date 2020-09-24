@@ -1,7 +1,7 @@
 import pandas as pd
 from pandas.errors import EmptyDataError
 import re
-from treasury_futures_reader import CODE_EXPMONTH_DICT
+from futures_reader import CODE_EXPMONTH_DICT
 from cboe_exchange_holidays_v3 import datelike_to_timestamp
 from options_futures_expirations_v3 import BUSDAY_OFFSET
 from cme_eod_file_reader import read_cme_file

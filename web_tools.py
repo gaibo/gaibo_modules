@@ -4,17 +4,17 @@ import gzip
 import shutil
 
 
-def safe_requests_get(url, n_failures=5, **reqget_kwargs):
+def safe_requests_get(url, n_failures=5, **requests_get_kwargs):
     """ Loop requests.get() for an improved chance of success when using web APIs
     :param url: web API URL on which to use requests.get()
     :param n_failures: max number of failures before giving up
-    :param reqget_kwargs: additional optional arguments for requests.get(); e.g. auth=('user', 'pass')
+    :param requests_get_kwargs: additional optional arguments for requests.get(); e.g. auth=('user', 'pass')
     :return: response from requests.get() or RuntimeError exception
     """
     failure_count = 0
     while failure_count < n_failures:
         try:
-            resp = requests.get(url, **reqget_kwargs)
+            resp = requests.get(url, **requests_get_kwargs)
             break
         except ConnectionError:
             failure_count += 1
