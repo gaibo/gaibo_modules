@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 from collections.abc import Iterable
 import pdblp
-from options_futures_expirations_v3 import datelike_to_timestamp, next_month_first_day, next_quarterly_month
+from options_futures_expirations_v3 import datelike_to_timestamp, next_month_first_day, \
+                                           next_quarterly_month, undl_fut_quarter_month
 
 BLOOMBERG_PULLS_FILEDIR = 'P:/PrdDevSharedDB/BBG Pull Scripts/'
 TREASURY_FUT_CSV_FILENAME = 'treasury_futures_pull.csv'
@@ -16,11 +17,16 @@ QUARTER_CODE_LIST = ['H', 'M', 'U', 'Z']
 MONTHLY_CODE_LIST = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
 
 
-def fut_ticker(fut_code, expiry_monthlike, expiry_type='futures', use_single_digit_year=False, product_type=None):
+def fut_ticker(fut_code, expiry_monthlike, expiry_type='futures', contract_cycle='monthly',
+               use_single_digit_year=False, product_type=None):
     """ Derive Bloomberg Treasury futures ticker from expiry of options or futures
     :param fut_code: code for the futures; e.g. 'TY', 'FV', 'SER', 'SFR', 'IBY', 'IHB'
     :param expiry_monthlike: date-like representation of expiration month (precision only needed to month)
     :param expiry_type: specify whether the expiry is 'options' or 'futures'
+    :param contract_cycle: only relevant when expiry_type='options'; options are almost certainly available monthly,
+                           while underlying futures may not be, e.g. Treasury options deliver quarterly futures;
+                           for this very specific use case, expiry_monthlike may be set to options expiry, with
+                           expiry_type='options' and contract_cycle='quarterly', to return quarterly futures ticker
     :param use_single_digit_year: set True to return single-digit year, used when querying for current year
     :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.;
                          set None to just omit the product keyword
@@ -28,6 +34,7 @@ def fut_ticker(fut_code, expiry_monthlike, expiry_type='futures', use_single_dig
     """
     expiry_month = datelike_to_timestamp(expiry_monthlike)
     if expiry_type == 'options':
+        # Options on futures assumed to expire in month before futures maturity
         next_month_and_year = expiry_month + pd.DateOffset(months=1)
         contract_year = next_month_and_year.year
         contract_month = next_month_and_year.month
@@ -35,8 +42,16 @@ def fut_ticker(fut_code, expiry_monthlike, expiry_type='futures', use_single_dig
         contract_year = expiry_month.year
         contract_month = expiry_month.month
     else:
-        raise ValueError("expiry_type must be either 'options' or 'futures'.")
-    month_code = EXPMONTH_CODE_DICT[contract_month]
+        raise ValueError("expiry_type must be either 'options' or 'futures'")
+    if contract_cycle == 'monthly':
+        month_code = EXPMONTH_CODE_DICT[contract_month]
+    elif contract_cycle == 'quarterly':
+        if expiry_type == 'futures':
+            print("WARNING: 'futures' and contract_cycle specified; this is redundant as futures maturity is given"
+                  "         in expiry_monthlike, so please verify this is intentional and not a misunderstanding")
+        month_code = EXPMONTH_CODE_DICT[undl_fut_quarter_month(contract_month)]     # Only quarterly months!
+    else:
+        raise ValueError("contract_cycle must be either 'monthly' or 'quarterly'")
     if use_single_digit_year:
         year_code = f'{contract_year%10}'   # One digit only, useful for current year queries
     else:

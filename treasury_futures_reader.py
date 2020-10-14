@@ -17,6 +17,7 @@ def fut_ticker(tenor, expiry_monthlike, expiry_type='options', use_single_digit_
     return futures_reader.fut_ticker(fut_code=TENOR_CODE_DICT[tenor],
                                      expiry_monthlike=expiry_monthlike,
                                      expiry_type=expiry_type,
+                                     contract_cycle='quarterly',
                                      use_single_digit_year=use_single_digit_year,
                                      product_type=(None if no_comdty else 'Comdty'))
 
