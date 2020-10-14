@@ -376,8 +376,8 @@ def load_fut_prices(file_dir='', file_name='temp_bbg_fut_prices.csv'):
     return pd.read_csv(file_dir + file_name, index_col=0, parse_dates=True, header=[0, 1])
 
 
-def get_fut_price(trade_date, fut_code, expiry_monthlike, expiry_type='futures', product_type='Comdty',
-                  data=None, contract_year=None, contract_month=None):
+def get_fut_price(trade_date, fut_code, expiry_monthlike, expiry_type='futures', contract_cycle='monthly',
+                  product_type='Comdty', data=None, contract_year=None, contract_month=None):
     """ Retrieve futures price from Bloomberg-exported data
         NOTE: contract_year and contract_month can be supplied together as an alternative to expiry_monthlike
     :param trade_date: trade date on which to get price
@@ -385,6 +385,10 @@ def get_fut_price(trade_date, fut_code, expiry_monthlike, expiry_type='futures',
     :param expiry_monthlike: date-like representation of expiration month (precision only needed to month);
                              set None to use contract_year and contract_month
     :param expiry_type: specify whether the expiry is 'options' or 'futures'
+    :param contract_cycle: only relevant when expiry_type='options'; options are almost certainly available monthly,
+                           while underlying futures may not be, e.g. Treasury options deliver quarterly futures;
+                           for this very specific use case, expiry_monthlike may be set to options expiry, with
+                           expiry_type='options' and contract_cycle='quarterly', to return quarterly futures ticker
     :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.
     :param data: Bloomberg-formatted dataset loaded via load_fut_prices()
     :param contract_year: options/futures contract year
@@ -396,12 +400,12 @@ def get_fut_price(trade_date, fut_code, expiry_monthlike, expiry_type='futures',
     if data is None:
         data = load_fut_prices()
     try:
-        ticker = fut_ticker(fut_code, expiry_monthlike, expiry_type, product_type=product_type,
-                            use_single_digit_year=False)
+        ticker = fut_ticker(fut_code, expiry_monthlike, expiry_type, contract_cycle=contract_cycle,
+                            product_type=product_type, use_single_digit_year=False)
         timeseries = data[ticker]['PX_LAST'].dropna()
     except KeyError:
         # Maybe case of ticker being in current year - use single digit year in ticker
-        ticker = fut_ticker(fut_code, expiry_monthlike, expiry_type, product_type=product_type,
-                            use_single_digit_year=True)
+        ticker = fut_ticker(fut_code, expiry_monthlike, expiry_type, contract_cycle=contract_cycle,
+                            product_type=product_type, use_single_digit_year=True)
         timeseries = data[ticker]['PX_LAST'].dropna()
     return timeseries.loc[trade_date]
