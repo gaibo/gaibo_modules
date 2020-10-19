@@ -18,7 +18,7 @@ MONTHLY_CODE_LIST = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
 
 
 def fut_ticker(fut_code, expiry_monthlike, expiry_type='futures', contract_cycle='monthly',
-               use_single_digit_year=False, product_type=None):
+               use_single_digit_year=False, product_type=None, verbose=True):
     """ Derive Bloomberg Treasury futures ticker from expiry of options or futures
     :param fut_code: code for the futures; e.g. 'TY', 'FV', 'SER', 'SFR', 'IBY', 'IHB'
     :param expiry_monthlike: date-like representation of expiration month (precision only needed to month)
@@ -30,6 +30,7 @@ def fut_ticker(fut_code, expiry_monthlike, expiry_type='futures', contract_cycle
     :param use_single_digit_year: set True to return single-digit year, used when querying for current year
     :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.;
                          set None to just omit the product keyword
+    :param verbose: set True for explicit print statements
     :return: string Bloomberg ticker; e.g. 'TYM18 Comdty' for 10-year June futures in 2018
     """
     expiry_month = datelike_to_timestamp(expiry_monthlike)
@@ -46,7 +47,7 @@ def fut_ticker(fut_code, expiry_monthlike, expiry_type='futures', contract_cycle
     if contract_cycle == 'monthly':
         month_code = EXPMONTH_CODE_DICT[contract_month]
     elif contract_cycle == 'quarterly':
-        if expiry_type == 'futures':
+        if verbose and expiry_type == 'futures':
             print("WARNING: 'futures' and contract_cycle specified; this is redundant as futures maturity is given"
                   "         in expiry_monthlike, so please verify this is intentional and not a misunderstanding")
         month_code = EXPMONTH_CODE_DICT[undl_fut_quarter_month(contract_month)]     # Only quarterly months!

@@ -19,7 +19,8 @@ def fut_ticker(tenor, expiry_monthlike, expiry_type='options', use_single_digit_
                                      expiry_type=expiry_type,
                                      contract_cycle='quarterly',
                                      use_single_digit_year=use_single_digit_year,
-                                     product_type=(None if no_comdty else 'Comdty'))
+                                     product_type=(None if no_comdty else 'Comdty'),
+                                     verbose=False)
 
 
 def reverse_fut_ticker(ticker, decade_helper=None, is_single_digit_year=False, no_comdty=False):
