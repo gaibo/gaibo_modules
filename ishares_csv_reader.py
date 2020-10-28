@@ -7,7 +7,7 @@ import os
 import warnings
 from pandas.errors import EmptyDataError, PerformanceWarning
 
-ETF_NAMES = ['SHY', 'IEI', 'IEF', 'TLH', 'TLT']
+ETF_NAMES = ['SHY', 'IEI', 'IEF', 'TLH', 'TLT', 'MBB']
 # SHY: 1-3 year Treasury bond ETF
 # IEI: 3-7 year Treasury bond ETF
 # IEF: 7-10 year Treasury bond ETF
@@ -63,6 +63,16 @@ ETF_FILE_URL_DICT = {
                      'dataType=fund&fileType=csv&fileName=TLT_holdings'),
         'Preliminary': 'https://www.ishares.com/us/literature/holdings/isht20-etf-early-holdings.csv',
         'Cash Flows': 'https://www.ishares.com/us/literature/cashflows/isht20-etf-cash-flows.csv'
+    },
+    'MBB': {
+        'XLS': ('https://www.ishares.com/us/products/'
+                '239465/ishares-mbs-etf/1521942788811.ajax?'
+                'dataType=fund&fileType=xls&fileName=iShares-MBS-ETF_fund'),
+        'Holdings': ('https://www.ishares.com/us/products/'
+                     '239465/ishares-mbs-etf/1467271812596.ajax?'
+                     'dataType=fund&fileType=csv&fileName=MBB_holdings'),
+        'Preliminary': 'https://www.ishares.com/us/literature/holdings/ishmbs-etf-early-holdings.csv',
+        'Cash Flows': 'https://www.ishares.com/us/literature/cashflows/ishmbs-etf-cash-flows.csv'
     }
 }
 URL_ASOFDATE_API_FORMAT = '&asOfDate={}'    # ...&asOfDate=20200623
@@ -169,9 +179,9 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
     # Check for known defective data dates
     try:
         asof_date = pd.to_datetime(file_name[:10])
-        if asof_date in PAR_VALUE_1000_DATES:
+        if etf_name == 'TLT' and asof_date in PAR_VALUE_1000_DATES:
             holdings.loc[holdings['Name'] != 'BLK CSH FND TREASURY SL AGENCY', 'Par Value'] *= 1000
-        # if asof_date in VALUE_HALVE_DATES:
+        # if etf_name == 'TLT' and asof_date in VALUE_HALVE_DATES:
         #     holdings[VALUE_HALVE_FIELDS] /= 2
     except ValueError:
         if verbose:
