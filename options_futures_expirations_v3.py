@@ -378,6 +378,7 @@ def vix_thirty_days_before(expiry_func=third_friday):
         Return VIX-style expiration date of month, i.e. 30 days (31 if 30 yields holiday)
         prior to expiration of next month's options on asset underlying VIX
         Usage: vix_thirty_days_before()('2020-02-24') yields Timestamp('2020-02-19 00:00:00')
+        NOTE: used on SPX options' third_friday, this generates VIX futures/options expiries
     :param expiry_func: monthly expiration date function for asset underlying VIX;
                         third_friday for S&P 500 VIX, last_friday for Treasury VIX
     :return: function that take parameter datelike_in_month and returns pd.Timestamp
