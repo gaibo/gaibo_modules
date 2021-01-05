@@ -297,7 +297,8 @@ def create_futures_ticker_list(fut_codes, start_datelike, end_datelike=None,
     :param verbose: set True for explicit print statements
     :return: list of futures tickers
     """
-    if isinstance(fut_codes, Iterable):
+    if not isinstance(fut_codes, str) and isinstance(fut_codes, Iterable):
+        # Note the special handling of string - it is Iterable, but we want it as single element, not many chars
         list_of_ticker_lists = \
             [_create_futures_ticker_list_single_fut_code(fut_code, start_datelike, end_datelike,
                                                          end_year_current, n_maturities_past_end, contract_cycle,
@@ -311,7 +312,7 @@ def create_futures_ticker_list(fut_codes, start_datelike, end_datelike=None,
 
 
 def pull_fut_prices(fut_codes, start_datelike, end_datelike=None, end_year_current=True,
-                    n_maturities_past_end=3, contract_cycle='quarterly', product_type='Comdty',
+                    n_maturities_past_end=3, contract_cycle='quarterly', product_type='Comdty', ticker_list=None,
                     file_dir='', file_name='temp_bbg_fut_prices.csv', bloomberg_con=None, verbose=True):
     """ Pull generic futures prices from Bloomberg Terminal and write them to disk
     :param fut_codes: code(s) for the futures; e.g. 'TY', ['FV', 'SER'], ('SFR', 'IBY', 'IHB')
@@ -322,6 +323,7 @@ def pull_fut_prices(fut_codes, start_datelike, end_datelike=None, end_year_curre
     :param n_maturities_past_end: number of current maturities (after price end date) to query for
     :param contract_cycle: 'quarterly' or 'monthly'
     :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.
+    :param ticker_list: explicit list of Bloomberg tickers to query; not None essentially overrides previous 4 arguments
     :param file_dir: directory to write data file; set None for current directory
     :param file_name: file name to write to file_dir
     :param bloomberg_con: active pdblp Bloomberg connection; if None, runs create_bloomberg_connection()
@@ -338,9 +340,10 @@ def pull_fut_prices(fut_codes, start_datelike, end_datelike=None, end_year_curre
         end_date = datelike_to_timestamp(end_datelike)
 
     # Create list of futures tickers
-    ticker_list = create_futures_ticker_list(fut_codes, start_date, end_date,
-                                             end_year_current, n_maturities_past_end, contract_cycle,
-                                             product_type, verbose=verbose)
+    if ticker_list is None:
+        ticker_list = create_futures_ticker_list(fut_codes, start_date, end_date,
+                                                 end_year_current, n_maturities_past_end, contract_cycle,
+                                                 product_type, verbose=verbose)
 
     # Get last price time-series of every ticker
     bbg_start_dt = start_date.strftime('%Y%m%d')
