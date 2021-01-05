@@ -63,19 +63,31 @@ def fut_ticker(fut_code, expiry_monthlike, expiry_type='futures', contract_cycle
     return ticker
 
 
-def reverse_fut_ticker(ticker, decade_helper=None, is_single_digit_year=False, has_product_type=True):
+def reverse_fut_ticker(ticker, decade_helper=None, is_single_digit_year=None, has_product_type=True):
     """ Reverse fut_ticker - derive futures code and expiry year-month from Bloomberg futures ticker
     :param ticker: string Bloomberg ticker; e.g. 'TYM18 Comdty', 'FVZ9'
     :param decade_helper: ensure accuracy of expiry year by providing the correct decade;
                           this is ideal as Bloomberg tickers only provide one or two digits for year
-    :param is_single_digit_year: set True if ticker only includes one digit for year (False indicates two)
+    :param is_single_digit_year: set True if ticker only includes one digit for year (False indicates two);
+                                 set None to automatically try 2 and do 1 iff 2 fails
     :param has_product_type: set False if ticker omits ' Comdty', etc. product keyword
     :return: (string futures code, string expiry year-month); e.g. ('TY', '2020-03')
     """
     if has_product_type:
         ticker = ticker.split()[0]  # Omit ' Comdty' part of ticker
-    n_year_digits = 1 if is_single_digit_year else 2
-    expiry_year_num = int(ticker[-n_year_digits:])
+    if is_single_digit_year is None:
+        # Try 2 digits, it will intelligently default to 1 digit if it doesn't work
+        n_year_digits, is_single_digit_year = 2, False
+    else:
+        n_year_digits = 1 if is_single_digit_year else 2
+    try:
+        expiry_year_num = int(ticker[-n_year_digits:])
+    except ValueError as e:
+        print(f"Reading {n_year_digits} digit year didn't work; retrying assuming 1 digit year...\n"
+              f"\t(Exception that was caught: <{e}>)")
+        # "Invalid literal for int()" likely means we tried 2 digits and it's actually 1
+        n_year_digits, is_single_digit_year = 1, True
+        expiry_year_num = int(ticker[-n_year_digits:])
     expiry_month_idx = -n_year_digits - 1
     expiry_month_num = CODE_EXPMONTH_DICT[ticker[expiry_month_idx]]
     fut_code = ticker[:expiry_month_idx]
