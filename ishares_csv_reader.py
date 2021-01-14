@@ -73,6 +73,26 @@ ETF_FILE_URL_DICT = {
                      'dataType=fund&fileType=csv&fileName=MBB_holdings'),
         'Preliminary': 'https://www.ishares.com/us/literature/holdings/ishmbs-etf-early-holdings.csv',
         'Cash Flows': 'https://www.ishares.com/us/literature/cashflows/ishmbs-etf-cash-flows.csv'
+    },
+    'HYG': {
+        'XLS': ('https://www.ishares.com/us/products/'
+                '239565/ishares-iboxx-high-yield-corporate-bond-etf/1521942788811.ajax?'
+                'dataType=fund&fileType=xls&fileName=iShares-iBoxx--High-Yield-Corporate-Bond-ETF_fund'),
+        'Holdings': ('https://www.ishares.com/us/products/'
+                     '239565/ishares-iboxx-high-yield-corporate-bond-etf/1467271812596.ajax?'
+                     'dataType=fund&fileType=csv&fileName=HYG_holdings'),
+        'Preliminary': 'https://www.ishares.com/us/literature/holdings/ishhyld-etf-early-holdings.csv',
+        'Cash Flows': 'https://www.ishares.com/us/literature/cashflows/ishhyld-etf-cash-flows.csv'
+    },
+    'LQD': {
+        'XLS': ('https://www.ishares.com/us/products/'
+                '239566/ishares-iboxx-investment-grade-corporate-bond-etf/1521942788811.ajax?'
+                'dataType=fund&fileType=xls&fileName=iShares-iBoxx--Investment-Grade-Corporate-Bond-ETF_fund'),
+        'Holdings': ('https://www.ishares.com/us/products/'
+                     '239566/ishares-iboxx-investment-grade-corporate-bond-etf/1467271812596.ajax?'
+                     'dataType=fund&fileType=csv&fileName=LQD_holdings'),
+        'Preliminary': 'https://www.ishares.com/us/literature/holdings/ishintop-etf-early-holdings.csv',
+        'Cash Flows': 'https://www.ishares.com/us/literature/cashflows/ishintop-etf-cash-flows.csv'
     }
 }
 URL_ASOFDATE_API_FORMAT = '&asOfDate={}'    # ...&asOfDate=20200623
