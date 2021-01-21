@@ -330,6 +330,21 @@ def prev_quarterly_month(datelike, quarter_return_self=False):
         return change_month(date, prev_quarter_month)
 
 
+def days_between(datelike_1, datelike_2, use_busdays=False):
+    """ Return number of calendar or business days between two dates
+    :param datelike_1: one of the dates
+    :param datelike_2: the other date
+    :param use_busdays: set True to only count business days
+    :return: number of days
+    """
+    date_1, date_2 = datelike_to_timestamp(datelike_1), datelike_to_timestamp(datelike_2)
+    earlier, later = (date_1, date_2) if date_2 > date_1 else (date_2, date_1)
+    if use_busdays:
+        return len(pd.date_range(earlier, later, freq=BUSDAY_OFFSET, closed='left'))
+    else:
+        return (later - earlier).days
+
+
 ###############################################################################
 # Monthly expiration date functions
 
@@ -565,6 +580,46 @@ def prev_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
             date = prev_quarterly_month(date)
         return (n_before_last_bus_day(strip_to_date(date), n_days_before_last)
                 + TREASURY_FUTURES_MATURITY_TIME)
+
+
+def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
+                      specific_product=None, expiry_func=third_friday):
+    """ Generate Series of product expiry dates
+        NOTE: vix_maturities = generate_expiries('2004-01-02', pd.Timestamp('now'), specific_product='VIX')
+    :param start_datelike: left bound (inclusive) on expiries to generate
+    :param end_datelike: right bound (inclusive) on expiries to generate; set None to ues n_terms
+    :param n_terms: instead of an end date, generate a number of expiries
+    :param specific_product: override expiry_func argument with built-in selection such as 'VIX'
+    :param expiry_func: monthly expiry function (returns expiration date given day in month)
+    :return: pd.Series of pd.Timestamp
+    """
+    start_date = datelike_to_timestamp(start_datelike)
+    # Override with bespoke expiry_func for common products
+    if isinstance(specific_product, str):
+        if specific_product.lower() == 'vix':
+            # Common request: VIX maturities
+            expiry_func = vix_thirty_days_before(third_friday)
+        else:
+            raise ValueError(f"Cannot recognize product \"{specific_product}\"")
+    # Decide how many expiries to generate
+    if end_datelike is not None:
+        end_date = datelike_to_timestamp(end_datelike)
+        # End date specified - no great way to do this, so iteratively generate
+        prev_n_terms, curr_n_terms = 0, 100     # Base n_terms is configured to 100; may be changed
+        mat_list = [next_expiry(start_date, expiry_func, n_terms=i) for i in range(prev_n_terms+1, curr_n_terms+1)]
+        while mat_list[-1] < end_date:
+            prev_n_terms, curr_n_terms = curr_n_terms, 2*curr_n_terms   # Exponential expansion of n_terms
+            mat_list_extension = [next_expiry(start_date, expiry_func, n_terms=i)
+                                  for i in range(prev_n_terms+1, curr_n_terms+1)]
+            mat_list += mat_list_extension
+        # Now cut superset to the end date (next_expiry() already takes care of start date)
+        mat_ser = pd.Series(mat_list)
+        return mat_ser[mat_ser <= end_date].copy()  # mat_ser[:mat_ser.searchsorted(end_date, 'right')-1] works too
+    else:
+        # Generate specified number of expiries - easier
+        mat_list = [next_expiry(start_date, expiry_func, n_terms=i) for i in range(1, n_terms+1)]
+        mat_ser = pd.Series(mat_list)
+        return mat_ser
 
 
 ###############################################################################
