@@ -7,7 +7,7 @@ import os
 import warnings
 from pandas.errors import EmptyDataError, PerformanceWarning
 
-ETF_NAMES = ['SHY', 'IEI', 'IEF', 'TLH', 'TLT', 'MBB']
+ETF_NAMES = ['SHY', 'IEI', 'IEF', 'TLH', 'TLT', 'MBB', 'HYG', 'LQD']
 # SHY: 1-3 year Treasury bond ETF
 # IEI: 3-7 year Treasury bond ETF
 # IEF: 7-10 year Treasury bond ETF
