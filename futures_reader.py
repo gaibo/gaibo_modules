@@ -324,7 +324,8 @@ def create_futures_ticker_list(fut_codes, start_datelike, end_datelike=None,
 
 
 def pull_fut_prices(fut_codes, start_datelike, end_datelike=None, end_year_current=True,
-                    n_maturities_past_end=3, contract_cycle='quarterly', product_type='Comdty', ticker_list=None,
+                    n_maturities_past_end=3, contract_cycle='quarterly', product_type='Comdty',
+                    bbg_flds_list=None, ticker_list=None,
                     file_dir='', file_name='temp_bbg_fut_prices.csv', bloomberg_con=None, verbose=True):
     """ Pull generic futures prices from Bloomberg Terminal and write them to disk
     :param fut_codes: code(s) for the futures; e.g. 'TY', ['FV', 'SER'], ('SFR', 'IBY', 'IHB')
@@ -335,6 +336,7 @@ def pull_fut_prices(fut_codes, start_datelike, end_datelike=None, end_year_curre
     :param n_maturities_past_end: number of current maturities (after price end date) to query for
     :param contract_cycle: 'quarterly' or 'monthly'
     :param product_type: Bloomberg futures are usually 'Comdty', but sometimes 'Index', etc.
+    :param bbg_flds_list: explicit list of Bloomberg FLDS to query; not None overrides ['PX_LAST']
     :param ticker_list: explicit list of Bloomberg tickers to query; not None essentially overrides previous 4 arguments
     :param file_dir: directory to write data file; set None for current directory
     :param file_name: file name to write to file_dir
@@ -350,6 +352,10 @@ def pull_fut_prices(fut_codes, start_datelike, end_datelike=None, end_year_curre
             print(f"End date inferred to be {end_date.strftime('%Y-%m-%d')}")
     else:
         end_date = datelike_to_timestamp(end_datelike)
+
+    # Determine fields to query (default is just last/settle price)
+    if bbg_flds_list is None:
+        bbg_flds_list = ['PX_LAST']
 
     # Create list of futures tickers
     if ticker_list is None:
@@ -370,7 +376,7 @@ def pull_fut_prices(fut_codes, start_datelike, end_datelike=None, end_year_curre
         if verbose:
             print(f"Existing Bloomberg connection given")
     try:
-        fut_price_df = bloomberg_con.bdh(ticker_list, 'PX_LAST', start_date=bbg_start_dt, end_date=bbg_end_dt)
+        fut_price_df = bloomberg_con.bdh(ticker_list, bbg_flds_list, start_date=bbg_start_dt, end_date=bbg_end_dt)
     except ValueError:
         raise ValueError(f"pull unsuccessful. here is list of tickers attempted:\n{ticker_list}")
     if must_close_con:
