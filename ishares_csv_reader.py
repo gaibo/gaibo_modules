@@ -146,16 +146,18 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
     full_local_name = f'{file_dir}{file_name}'
     if verbose:
         print(f"Local file to be read: {full_local_name}")
+
     # Read regularly-formatted section (skipping first 9 rows)
     # NOTE: '\xa0' (at end of holdings CSV) is a non-breaking space in Latin1 (ISO 8859-1) (value 160)
     # NOTE: files frustratingly give coupon rates imprecisely - that is fixed here
     # NOTE: at start of 2020-07, iShares reformatted columns; try-except has been added to patch code
+    # NOTE: starting 2021-02-18, iShares added disclaimer to end of file - that is specifically excluded
     try:
         holdings = pd.read_csv(full_local_name,
                                skiprows=range(9),
                                thousands=',',
                                na_values=['-', '\xa0'],
-                               parse_dates=['Maturity']).dropna(how='all')
+                               parse_dates=['Maturity'])
     except EmptyDataError:
         # Completely empty file - perhaps date is not a business date
         if verbose:
@@ -166,9 +168,11 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
         holdings = pd.read_csv(full_local_name,
                                skiprows=range(9),
                                thousands=',',
-                               na_values=['-', '\xa0']).dropna(how='all')
+                               na_values=['-', '\xa0'])
         if verbose:
             print("WARNING: Holdings section has no \"Maturity\" column.")
+    # Drop unusable rows - every asset should reasonably have 'Weight (%)'
+    holdings = holdings[~holdings['Weight (%)'].isna()]     # Eliminates empty and disclaimer rows
     try:
         holdings.loc[(round(holdings['Coupon (%)'] % 1, 2) == 0.13)
                      | (round(holdings['Coupon (%)'] % 1, 2) == 0.38)
@@ -180,6 +184,7 @@ def load_holdings_csv(etf_name='TLT', asof_datelike=None,
             print("WARNING: Holdings section has no \"Coupon (%)\" column.")
     if verbose:
         print("Holdings section successfully formatted.")
+
     # Read irregularly-formatted section (first 8 rows, 7 if not counting header)
     extra_info = pd.read_csv(full_local_name, nrows=7, na_values=['-']).T
     date_fields = ['Fund Holdings as of', 'Inception Date']
