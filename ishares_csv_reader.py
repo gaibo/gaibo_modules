@@ -425,7 +425,7 @@ def get_historical_xls_info(etf_name, asof_datelike,
                             if f.endswith(f'_{etf_name}.xls')])[-1]
     # Open XLS file and parse by raw string
     full_local_name = f'{file_dir}{file_name}'
-    with open(full_local_name) as f:
+    with open(full_local_name, encoding='utf-8-sig') as f:
         f_text = f.read()  # Extract all contents of file to string
         hist_sheet_loc = f_text.find(HISTORICAL_SHEET_START)  # Find Historical sheet for starting point
         asof_date_str = asof_date.strftime('%b %d, %Y')
