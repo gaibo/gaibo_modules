@@ -349,7 +349,7 @@ def days_between(datelike_1, datelike_2, use_busdays=False):
 # Monthly expiration date functions
 
 def third_friday(datelike_in_month):
-    """ Return third-Friday options expiration date of month
+    """ Return third-Friday options expiration date of month [standard options expiry]
         NOTE: return date could be before input date; only month (and year) matters
     :param datelike_in_month: date-like representation of any day in the month
     :return: pd.Timestamp
@@ -362,7 +362,7 @@ def third_friday(datelike_in_month):
 
 
 def third_saturday(datelike_in_month):
-    """ Return third-Saturday options expiration date of month (SPX, up until 2015-02)
+    """ Return third-Saturday options expiration date of month [SPX, up until 2015-02]
         NOTE: return date could be before input date; only month (and year) matters
     :param datelike_in_month: date-like representation of any day in the month
     :return: pd.Timestamp
@@ -376,7 +376,7 @@ def third_saturday(datelike_in_month):
 
 def last_friday(datelike_in_month):
     """ Return last-Friday (at least 2 business days preceding last business day of month)
-        options expiration date of month (Treasury)
+        options expiration date of month [CME Treasury options]
         NOTE: return date could be before input date; only month (and year) matters
     :param datelike_in_month: date-like representation of any day in the month
     :return: pd.Timestamp
@@ -390,10 +390,10 @@ def last_friday(datelike_in_month):
 
 def vix_thirty_days_before(expiry_func=third_friday):
     """ Create function (through augmenting input function) to:
-        Return VIX-style expiration date of month, i.e. 30 days (31 if 30 yields holiday)
+        Return VIX-style expiration date of month, i.e. 30 days (31 if 30 falls on holiday)
         prior to expiration of next month's options on asset underlying VIX
         Usage: vix_thirty_days_before()('2020-02-24') yields Timestamp('2020-02-19 00:00:00')
-        NOTE: used on SPX options' third_friday, this generates VIX futures/options expiries
+        [used on SPX options' third_friday(), this generates VIX futures/options expiries]
     :param expiry_func: monthly expiration date function for asset underlying VIX;
                         third_friday for S&P 500 VIX, last_friday for Treasury VIX
     :return: function that take parameter datelike_in_month and returns pd.Timestamp
@@ -410,6 +410,48 @@ def vix_thirty_days_before(expiry_func=third_friday):
         base_minus_thirty_bus_day = ensure_bus_day(base_minus_thirty, shift_to='prev')
         return base_minus_thirty_bus_day
     return wrapper
+
+
+def first_of_month(datelike_in_month):
+    """ Return first business day of month [iBoxx Futures (IBHY and IBIG) maturity]
+        NOTE: return date could be before input date; only month (and year) matters
+    :param datelike_in_month: date-like representation of any day in the month
+    :return: pd.Timestamp
+    """
+    date_in_month = datelike_to_timestamp(datelike_in_month)
+    first_day = strip_to_date(date_in_month).replace(day=1)
+    first_busday = first_day - BUSDAY_OFFSET + BUSDAY_OFFSET
+    return first_busday
+
+
+def last_of_month(datelike_in_month, quarterly=True):
+    """ Return last business day of month (or quarter)
+        [CME Treasury Futures (2- and 5-year) maturity]
+        NOTE: return date could be before input date; only month (and year) matters
+    :param datelike_in_month: date-like representation of any day in the month (or quarter)
+    :param quarterly: set True to return relevant quarterly month maturity
+    :return: pd.Timestamp
+    """
+    date_in_month = datelike_to_timestamp(datelike_in_month)
+    first_day = strip_to_date(date_in_month).replace(day=1)
+    if quarterly:
+        first_day = next_quarterly_month(first_day, quarter_return_self=True)
+    return n_before_last_bus_day(first_day, 0)
+
+
+def seventh_before_last_of_month(datelike_in_month, quarterly=True):
+    """ Return 7th business day preceding last business day of month (or quarter)
+        [CME Treasury Futures (10- and 30-year) maturity]
+        NOTE: return date could be before input date; only month (and year) matters
+    :param datelike_in_month: date-like representation of any day in the month (or quarter)
+    :param quarterly: set True to return relevant quarterly month maturity
+    :return: pd.Timestamp
+    """
+    date_in_month = datelike_to_timestamp(datelike_in_month)
+    first_day = strip_to_date(date_in_month).replace(day=1)
+    if quarterly:
+        first_day = next_quarterly_month(first_day, quarter_return_self=True)
+    return n_before_last_bus_day(first_day, 7)
 
 
 ###############################################################################
