@@ -724,11 +724,11 @@ if __name__ == '__main__':
     print("next_expiry('2019-04-18', n_terms=2):\n{}"
           .format(next_expiry('2019-04-18', n_terms=2)))
     print("next_expiry('2019-04-19', n_terms=1, curr_month_as_first_term=True):\n{}"
-          .format(next_expiry('2019-04-19', n_terms=1, curr_month_as_first_term=True)))
+          .format(next_expiry('2019-04-19', n_terms=1, curr_as_first_term=True)))
     print("prev_expiry('2019-06-22', n_terms=3):\n{}"
           .format(prev_expiry('2019-06-22', n_terms=3)))
     print("prev_expiry('2019-05-17', n_terms=2, curr_month_as_first_term=True):\n{}"
-          .format(prev_expiry('2019-05-17', n_terms=2, curr_month_as_first_term=True)))
+          .format(prev_expiry('2019-05-17', n_terms=2, curr_as_first_term=True)))
     print("next_expiry('2016-03-09', last_friday, 1):\n{}"
           .format(next_expiry('2016-03-09', last_friday, 1)))
     print("next_expiry('2016-03-09', expiry_func=last_friday, n_terms=12, expiry_time='14:00:00'):\n{}"
@@ -736,7 +736,7 @@ if __name__ == '__main__':
     print("prev_expiry('2017-02-24', expiry_func=last_friday, n_terms=12,\n"
           "            curr_month_as_first_term=True, expiry_time='14:00:00'):\n{}"
           .format(prev_expiry('2017-02-24', expiry_func=last_friday, n_terms=12,
-                              curr_month_as_first_term=True, expiry_time='14:00:00')))
+                              curr_as_first_term=True, expiry_time='14:00:00')))
     print("next_expiry('2019-03-20 16:00:00', expiry_func=last_friday, expiry_time='11:59:59'):\n{}"
           .format(next_expiry('2019-03-20 16:00:00', expiry_func=last_friday, expiry_time='11:59:59')))
     print("next_expiry('2018-10-12', expiry_func=vix_thirty_days_before(third_friday), n_terms=3):\n{}"
