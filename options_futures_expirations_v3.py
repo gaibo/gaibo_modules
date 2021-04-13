@@ -396,7 +396,7 @@ def vix_thirty_days_before(expiry_func=third_friday):
         [used on SPX options' third_friday(), this generates VIX futures/options expiries]
     :param expiry_func: monthly expiration date function for asset underlying VIX;
                         third_friday for S&P 500 VIX, last_friday for Treasury VIX
-    :return: function that take parameter datelike_in_month and returns pd.Timestamp
+    :return: function that takes parameter datelike_in_month and returns pd.Timestamp
     """
     def wrapper(datelike_in_month):
         """ Wrap asset expiration date of month function to return VIX-style expiration """
@@ -407,93 +407,111 @@ def vix_thirty_days_before(expiry_func=third_friday):
         # Ensure date is not a holiday - shift to date prior if needed
         # To our knowledge, the singular precedent is VIX Weeklys on 2018-12-05 - George
         # H. W. Bush's Day of Mourning fell on a Wednesday and shifted expiration to Tuesday
-        base_minus_thirty_bus_day = ensure_bus_day(base_minus_thirty, shift_to='prev')
-        return base_minus_thirty_bus_day
+        return ensure_bus_day(base_minus_thirty, shift_to='prev')
     return wrapper
 
 
+def last_of_month(datelike_in_month):
+    """ Return last business day of month [CME Treasury Futures (2- and 5-year) maturity]
+        NOTE: for Treasury Futures, this should be used with the quarterly_only() wrapper,
+              e.g. quarterly_only(last_of_month)('2021-04-08') to get Timestamp('2021-06-30')
+        NOTE: return date could be before input date; only month (and year) matters
+    :param datelike_in_month: date-like representation of any day in the month (or quarter)
+    :return: pd.Timestamp
+    """
+    return n_before_last_bus_day(datelike_in_month, 0)
+
+
+def seventh_before_last_of_month(datelike_in_month):
+    """ Return 7th business day preceding last business day of month
+        [CME Treasury Futures (10- and 30-year) maturity]
+        NOTE: for Treasury Futures, this should be used with the quarterly_only() wrapper,
+              e.g. quarterly_only(seventh_before_last_of_month)('2021-04-08')
+              to get Timestamp('2021-06-21')
+        NOTE: return date could be before input date; only month (and year) matters
+    :param datelike_in_month: date-like representation of any day in the month (or quarter)
+    :return: pd.Timestamp
+    """
+    return n_before_last_bus_day(datelike_in_month, 7)
+
+
 def first_of_month(datelike_in_month):
-    """ Return first business day of month [iBoxx Futures (IBHY and IBIG) maturity]
+    """ Return first business day of month [iBoxx (IBHY and IBIG) Futures maturity]
         NOTE: return date could be before input date; only month (and year) matters
     :param datelike_in_month: date-like representation of any day in the month
     :return: pd.Timestamp
     """
     date_in_month = datelike_to_timestamp(datelike_in_month)
-    first_day = strip_to_date(date_in_month).replace(day=1)
-    first_busday = first_day - BUSDAY_OFFSET + BUSDAY_OFFSET
-    return first_busday
+    first_date_in_month = date_in_month.replace(day=1)
+    return ensure_bus_day(first_date_in_month, shift_to='next')
 
 
-def last_of_month(datelike_in_month, quarterly=True):
-    """ Return last business day of month (or quarter)
-        [CME Treasury Futures (2- and 5-year) maturity]
-        NOTE: return date could be before input date; only month (and year) matters
-    :param datelike_in_month: date-like representation of any day in the month (or quarter)
-    :param quarterly: set True to return relevant quarterly month maturity
-    :return: pd.Timestamp
+def quarterly_only(expiry_func=seventh_before_last_of_month):
+    """ Create function (through augmenting input function) to:
+        Return expiration date of current quarter (rather than current month)
+        Usage: quarterly_only()('2020-02-24') yields Timestamp('2020-03-20 00:00:00')
+        [used on 10-year Treasury futures' seventh_before_last_of_month(), this generates
+         only quarterly maturities, useful because Treasury futures only list quarterlies]
+    :param expiry_func: monthly expiration date function
+    :return: function that takes parameter datelike_in_month and returns pd.Timestamp
     """
-    date_in_month = datelike_to_timestamp(datelike_in_month)
-    first_day = strip_to_date(date_in_month).replace(day=1)
-    if quarterly:
-        first_day = next_quarterly_month(first_day, quarter_return_self=True)
-    return n_before_last_bus_day(first_day, 0)
-
-
-def seventh_before_last_of_month(datelike_in_month, quarterly=True):
-    """ Return 7th business day preceding last business day of month (or quarter)
-        [CME Treasury Futures (10- and 30-year) maturity]
-        NOTE: return date could be before input date; only month (and year) matters
-    :param datelike_in_month: date-like representation of any day in the month (or quarter)
-    :param quarterly: set True to return relevant quarterly month maturity
-    :return: pd.Timestamp
-    """
-    date_in_month = datelike_to_timestamp(datelike_in_month)
-    first_day = strip_to_date(date_in_month).replace(day=1)
-    if quarterly:
-        first_day = next_quarterly_month(first_day, quarter_return_self=True)
-    return n_before_last_bus_day(first_day, 7)
+    def wrapper(datelike_in_month):
+        """ Wrap asset expiration date of month function to return only quarterly results """
+        date_in_quarterly_month = next_quarterly_month(datelike_in_month, quarter_return_self=True)
+        return expiry_func(date_in_quarterly_month)
+    return wrapper
 
 
 ###############################################################################
 # Complex product expiry/maturity tools
 
 def next_expiry(datelike, expiry_func=third_friday, n_terms=1,
-                curr_month_as_first_term=False, expiry_time=None):
+                curr_as_first_term=False, expiry_time=None):
     """ Find designated expiration date
-        NOTE: no expiry_time is involved (i.e. imprecise use):
-              - if input date is the expiration date, it WILL be returned as the "next"
-                expiry, since expiration would technically happen at the end of that day
-              expiry_time is provided (i.e. precise, iterative use):
-              - if input date-time is the expiration date-time, it WILL NOT be returned
-                as the "next" expiry; the next month's expiration date-time will be returned
+        Case 1: no expiry_time involved (i.e. imprecise use):
+            if input date is the expiration date, it WILL be returned as the "next"
+            expiry, since expiration would technically happen at the end of that day
+        Case 2: expiry_time is provided (i.e. precise, iterative use):
+            if input date-time is the expiration date-time, it WILL NOT be returned
+            as the "next" expiry; the next month's expiration date-time will be returned
+        NOTE: function originally designed for monthlies, but now works with quarterlies;
+              try expiry_func=quarterly_only(monthly_func)
     :param datelike: date-like representation;
                      if expiry_time is None, precision to day; otherwise, precision to time
     :param expiry_func: monthly expiry function (returns expiration date given day in month)
     :param n_terms: number of terms forward (1 or more)
-    :param curr_month_as_first_term: set True to force input date's month as the first term,
-                                     even if input date is after month's expiration
+    :param curr_as_first_term: set True to force input date's month/quarter as the first term,
+                               even if input date is after month's expiration
     :param expiry_time: specific time of expiration on expiration date; e.g. '16:15:00' for 4:15pm
     :return: pd.Timestamp
     """
     if n_terms <= 0:
         raise ValueError("0th expiration makes no sense. Please use prev_expiry() for past expiries.")
-    date = datelike_to_timestamp(datelike)  # Potentially includes date and time
-    curr_month_expiry = expiry_func(strip_to_date(date))
+    date = datelike_to_timestamp(datelike)  # date: agnostic; could be date-only or date-time
+    curr_expiry = expiry_func(strip_to_date(date))    # curr_expiry: date-only
+    # Account for whether date falls past its expiry_func() expiry, which is only precise to month
     if expiry_time is not None:
-        curr_month_expiry += timelike_to_timedelta(expiry_time)
-        if date < curr_month_expiry or curr_month_as_first_term:
+        curr_expiry += timelike_to_timedelta(expiry_time)     # curr_expiry: date-and-time
+        if date < curr_expiry or curr_as_first_term:
             months_forward = n_terms - 1
         else:
             months_forward = n_terms
     else:
-        date = strip_to_date(date)  # Limit precision to only date
-        if date <= curr_month_expiry or curr_month_as_first_term:
+        date = strip_to_date(date)  # date: date-only
+        if date <= curr_expiry or curr_as_first_term:
             months_forward = n_terms - 1
         else:
             months_forward = n_terms
+    # Now that n_terms has been adjusted, return the appropriate expiry
     if months_forward == 0:
-        return curr_month_expiry
+        return curr_expiry
     else:
+        # Subtle feature: expiry_func() may return only quarterlies, rather than monthlies
+        next_month_expiry = expiry_func(curr_expiry + pd.DateOffset(months=1))
+        prev_month_expiry = expiry_func(curr_expiry - pd.DateOffset(months=1))
+        if curr_expiry == next_month_expiry or curr_expiry == prev_month_expiry:
+            months_forward *= 3     # Adjust n terms from months to quarters
+        # Fast-forward to appropriate month and run expiry_func()
         designated_month_first = date.replace(day=1) + pd.DateOffset(months=months_forward)
         designated_month_expiry = expiry_func(strip_to_date(designated_month_first))
         if expiry_time is not None:
@@ -502,33 +520,41 @@ def next_expiry(datelike, expiry_func=third_friday, n_terms=1,
 
 
 def prev_expiry(datelike, expiry_func=third_friday, n_terms=1,
-                curr_month_as_first_term=False, expiry_time=None):
+                curr_as_first_term=False, expiry_time=None):
     """ Find designated expiration date
         NOTE: if input date is the expiration date, it will NOT be returned as the "previous"
               expiry, since expiration would technically happen at the end of that day
     :param datelike: date-like representation of any day in the month
     :param expiry_func: monthly expiry function (returns expiration date given day in month)
     :param n_terms: number of terms backward (1 or more)
-    :param curr_month_as_first_term: set True to force input date's month as the first term,
-                                     even if input date is before month's expiration
+    :param curr_as_first_term: set True to force input date's month/quarter as the first term,
+                               even if input date is before month's expiration
     :param expiry_time: specific time of expiration on expiration date; e.g. '16:15:00' for 4:15pm
     :return: pd.Timestamp
     """
     if n_terms <= 0:
         raise ValueError("0th expiration makes no sense. Please use next_expiry() for future expiries.")
-    date = datelike_to_timestamp(datelike)
-    curr_month_expiry = expiry_func(strip_to_date(date))
+    date = datelike_to_timestamp(datelike)  # date: agnostic; could be date-only or date-time
+    curr_expiry = expiry_func(strip_to_date(date))    # curr_expiry: date-only
+    # Account for whether date falls past its expiry_func() expiry, which is only precise to month
     if expiry_time is not None:
-        curr_month_expiry += timelike_to_timedelta(expiry_time)
+        curr_expiry += timelike_to_timedelta(expiry_time)     # curr_expiry: date-and-time
     else:
-        date = strip_to_date(date)  # Limit precision to only date
-    if date > curr_month_expiry or curr_month_as_first_term:
+        date = strip_to_date(date)  # date: date-only
+    if date > curr_expiry or curr_as_first_term:
         months_backward = n_terms - 1
     else:
         months_backward = n_terms
+    # Now that n_terms has been adjusted, return the appropriate expiry
     if months_backward == 0:
-        return curr_month_expiry
+        return curr_expiry
     else:
+        # Subtle feature: expiry_func() may return only quarterlies, rather than monthlies
+        next_month_expiry = expiry_func(curr_expiry + pd.DateOffset(months=1))
+        prev_month_expiry = expiry_func(curr_expiry - pd.DateOffset(months=1))
+        if curr_expiry == next_month_expiry or curr_expiry == prev_month_expiry:
+            months_backward *= 3  # Adjust n terms from months to quarters
+        # Fast-rewind to appropriate month and run expiry_func()
         designated_month_first = date.replace(day=1) - pd.DateOffset(months=months_backward)
         designated_month_expiry = expiry_func(strip_to_date(designated_month_first))
         if expiry_time is not None:
@@ -631,16 +657,22 @@ def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
     :param start_datelike: left bound (inclusive) on expiries to generate
     :param end_datelike: right bound (inclusive) on expiries to generate; set None to ues n_terms
     :param n_terms: instead of an end date, generate a number of expiries
-    :param specific_product: override expiry_func argument with built-in selection such as 'VIX'
+    :param specific_product: override expiry_func argument with built-in selection;
+                             recognizes: 'VIX', 'SPX'
     :param expiry_func: monthly expiry function (returns expiration date given day in month)
     :return: pd.Series of pd.Timestamp
     """
     start_date = datelike_to_timestamp(start_datelike)
     # Override with bespoke expiry_func for common products
     if isinstance(specific_product, str):
-        if specific_product.lower() == 'vix':
-            # Common request: VIX maturities
+        specific_product = specific_product.lower()     # Normalize to lowercase
+        if specific_product in ['vix', 'vix future', 'vix futures', 'vix option', 'vix options']:
+            # Common request: VIX futures/options expiries (same for both)
             expiry_func = vix_thirty_days_before(third_friday)
+        elif specific_product in ['spx', 'spx future', 'spx futures', 'e-mini', 'e-minis', 'spoos',
+                                  'spx option', 'spx options']:
+            # Common request: SPX futures (E-mini)/options expiries (same for both)
+            expiry_func = third_friday
         else:
             raise ValueError(f"Cannot recognize product \"{specific_product}\"")
     # Decide how many expiries to generate
@@ -667,6 +699,18 @@ def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
 ###############################################################################
 
 if __name__ == '__main__':
+    # Monthly expiration date functions
+    print("last_of_month('2020-09-21 16:00:01'):\n{}"
+          .format(last_of_month('2020-09-21 16:00:01')))
+    print("seventh_before_last_of_month('2020-04-30'):\n{}"
+          .format(seventh_before_last_of_month('2020-04-30')))
+    print("quarterly_only(seventh_before_last_of_month)('2020-04-30'):\n{}"
+          .format(quarterly_only(seventh_before_last_of_month)('2020-04-30')))
+    print("quarterly_only(seventh_before_last_of_month)('2021-07-05'):\n{}"
+          .format(quarterly_only(seventh_before_last_of_month)('2021-07-05')))
+    print("first_of_month('2021-05-21'):\n{}"
+          .format(first_of_month('2021-05-21')))
+
     # next_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
     #             curr_month_as_first_term=False, expiry_time=None)
     print("next_expiry('2019-04-09'):\n{}"
@@ -723,6 +767,7 @@ if __name__ == '__main__':
           .format(prev_expiry('2020-04-17 16:00:00', n_terms=2, expiry_time='16:00:00')))
     print("prev_expiry('2020-04-17 16:00:00', n_terms=1):\n{}"
           .format(prev_expiry('2020-04-17 16:00:00', n_terms=1)))
+
     # next_treasury_futures_maturity(datelike, n_terms=1, tenor=10)
     print("next_treasury_futures_maturity('2019-02-09'):\n{}"
           .format(next_treasury_futures_maturity('2019-02-09')))
