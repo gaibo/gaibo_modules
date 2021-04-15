@@ -567,43 +567,21 @@ def next_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
         the last business day of the quarterly month
         NOTE: if input date is the maturity date, it will be returned as the "next"
               maturity, since maturation would technically happen at the end of that day
+        NOTE: originally had separate algorithm from next_expiry, now a subset
     :param datelike: date-like representation of any day in the month
     :param n_terms: number of terms forward (1 or more)
     :param tenor: 2, 5, 10, or 30 for 2-, 5-, 10-, or 30-year Treasury note futures
     :return: pd.Timestamp
     """
-    if n_terms <= 0:
-        raise ValueError("0th expiration makes no sense. "
-                         "Please use prev_treasury_futures_maturity() for past expiries.")
     # Different tenors have different rules for maturity date
     if tenor in [2, 5]:
-        n_days_before_last = 0
+        return next_expiry(datelike, quarterly_only(last_of_month),
+                           n_terms, expiry_time=TREASURY_FUTURES_MATURITY_TIME)
     elif tenor in [10, 30]:
-        n_days_before_last = 7
+        return next_expiry(datelike, quarterly_only(seventh_before_last_of_month),
+                           n_terms, expiry_time=TREASURY_FUTURES_MATURITY_TIME)
     else:
         raise ValueError(f"Unrecognized tenor - {tenor}.")
-    date = datelike_to_timestamp(datelike)
-    if date.month in [3, 6, 9, 12]:
-        # Evaluate whether current quarterly month's maturity has already passed
-        curr_month_maturity = (n_before_last_bus_day(strip_to_date(date), n_days_before_last)
-                               + TREASURY_FUTURES_MATURITY_TIME)
-        if date < curr_month_maturity:
-            terms_forward = n_terms - 1
-        else:
-            terms_forward = n_terms
-        # Take a shortcut that is slightly more efficient than next_quarterly_month()
-        if terms_forward == 0:
-            return curr_month_maturity
-        else:
-            designated_quarter_month_date = date + pd.DateOffset(months=terms_forward*3)
-            return (n_before_last_bus_day(strip_to_date(designated_quarter_month_date), n_days_before_last)
-                    + TREASURY_FUTURES_MATURITY_TIME)
-    else:
-        # Iterate through next quarterly months
-        for _ in range(n_terms):
-            date = next_quarterly_month(date)
-        return (n_before_last_bus_day(strip_to_date(date), n_days_before_last)
-                + TREASURY_FUTURES_MATURITY_TIME)
 
 
 def prev_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
@@ -611,43 +589,20 @@ def prev_treasury_futures_maturity(datelike, n_terms=1, tenor=10):
         the last business day of the quarterly month
         NOTE: if input date is the maturity date, it will NOT be returned as the "previous"
               maturity, since maturation would technically happen at the end of that day
+        NOTE: originally had separate algorithm from prev_expiry, now a subset
     :param datelike: date-like representation of any day in the month
     :param n_terms: number of terms backward (1 or more)
     :param tenor: 2, 5, 10, or 30 for 2-, 5-, 10-, or 30-year Treasury note futures
     :return: pd.Timestamp
     """
-    if n_terms <= 0:
-        raise ValueError("0th expiration makes no sense. "
-                         "Please use next_treasury_futures_maturity() for future expiries.")
-    # Different tenors have different rules for maturity date
     if tenor in [2, 5]:
-        n_days_before_last = 0
+        return prev_expiry(datelike, quarterly_only(last_of_month),
+                           n_terms, expiry_time=TREASURY_FUTURES_MATURITY_TIME)
     elif tenor in [10, 30]:
-        n_days_before_last = 7
+        return prev_expiry(datelike, quarterly_only(seventh_before_last_of_month),
+                           n_terms, expiry_time=TREASURY_FUTURES_MATURITY_TIME)
     else:
         raise ValueError(f"Unrecognized tenor - {tenor}.")
-    date = datelike_to_timestamp(datelike)
-    if date.month in [3, 6, 9, 12]:
-        # Evaluate whether current quarterly month's maturity has already passed
-        curr_month_maturity = (n_before_last_bus_day(strip_to_date(date), n_days_before_last)
-                               + TREASURY_FUTURES_MATURITY_TIME)
-        if date > curr_month_maturity:
-            terms_backward = n_terms - 1
-        else:
-            terms_backward = n_terms
-        # Take a shortcut that is slightly more efficient than next_quarterly_month()
-        if terms_backward == 0:
-            return curr_month_maturity
-        else:
-            designated_quarter_month_date = date - pd.DateOffset(months=terms_backward*3)
-            return (n_before_last_bus_day(strip_to_date(designated_quarter_month_date), n_days_before_last)
-                    + TREASURY_FUTURES_MATURITY_TIME)
-    else:
-        # Iterate through next quarterly months
-        for _ in range(n_terms):
-            date = prev_quarterly_month(date)
-        return (n_before_last_bus_day(strip_to_date(date), n_days_before_last)
-                + TREASURY_FUTURES_MATURITY_TIME)
 
 
 def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
@@ -658,7 +613,7 @@ def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
     :param end_datelike: right bound (inclusive) on expiries to generate; set None to ues n_terms
     :param n_terms: instead of an end date, generate a number of expiries
     :param specific_product: override expiry_func argument with built-in selection;
-                             recognizes: 'VIX', 'SPX'
+                             recognizes: 'VIX', 'SPX', 'Treasury options', 'Treasury futures 2/5/10/30', 'iBoxx'
     :param expiry_func: monthly expiry function (returns expiration date given day in month)
     :return: pd.Series of pd.Timestamp
     """
@@ -673,6 +628,21 @@ def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
                                   'spx option', 'spx options']:
             # Common request: SPX futures (E-mini)/options expiries (same for both)
             expiry_func = third_friday
+        elif specific_product in ['treasury option', 'treasury options']:
+            # CME Treasury options (all tenors)
+            expiry_func = last_friday
+        elif specific_product in ['treasury future 2', 'treasury futures 2',
+                                  'treasury future 5', 'treasury futures 5']:
+            # CME Treasury futures (2-year and 5-year tenors)
+            expiry_func = quarterly_only(last_of_month)
+        elif specific_product in ['treasury future 10', 'treasury futures 10',
+                                  'treasury future 30', 'treasury futures 30']:
+            # CME Treasury futures (10-year and 30-year tenors)
+            expiry_func = quarterly_only(seventh_before_last_of_month)
+        elif specific_product in ['iboxx', 'iboxx future', 'iboxx futures', 'ibhy', 'ibig',
+                                  'ibhy future', 'ibhy futures', 'ibig future', 'ibig futures']:
+            # iBoxx futures (IBHY and IBIG)
+            expiry_func = first_of_month
         else:
             raise ValueError(f"Cannot recognize product \"{specific_product}\"")
     # Decide how many expiries to generate
@@ -710,6 +680,7 @@ if __name__ == '__main__':
           .format(quarterly_only(seventh_before_last_of_month)('2021-07-05')))
     print("first_of_month('2021-05-21'):\n{}"
           .format(first_of_month('2021-05-21')))
+    print()
 
     # next_expiry(datelike_in_month, expiry_func=third_friday, n_terms=1,
     #             curr_month_as_first_term=False, expiry_time=None)
@@ -767,6 +738,7 @@ if __name__ == '__main__':
           .format(prev_expiry('2020-04-17 16:00:00', n_terms=2, expiry_time='16:00:00')))
     print("prev_expiry('2020-04-17 16:00:00', n_terms=1):\n{}"
           .format(prev_expiry('2020-04-17 16:00:00', n_terms=1)))
+    print()
 
     # next_treasury_futures_maturity(datelike, n_terms=1, tenor=10)
     print("next_treasury_futures_maturity('2019-02-09'):\n{}"
@@ -793,6 +765,17 @@ if __name__ == '__main__':
           .format(prev_treasury_futures_maturity('2020-09-21 16:00:01', 2)))
 
 """ Expected Output:
+last_of_month('2020-09-21 16:00:01'):
+2020-09-30 16:00:01
+seventh_before_last_of_month('2020-04-30'):
+2020-04-21 00:00:00
+quarterly_only(seventh_before_last_of_month)('2020-04-30'):
+2020-06-19 00:00:00
+quarterly_only(seventh_before_last_of_month)('2021-07-05'):
+2021-09-21 00:00:00
+first_of_month('2021-05-21'):
+2021-05-03 00:00:00
+
 next_expiry('2019-04-09'):
 2019-04-18 00:00:00
 next_expiry('2019-04-09', n_terms=2):
@@ -846,6 +829,7 @@ prev_expiry('2020-04-17 16:00:00', n_terms=2, expiry_time='16:00:00'):
 2020-02-21 16:00:00
 prev_expiry('2020-04-17 16:00:00', n_terms=1):
 2020-03-20 00:00:00
+
 next_treasury_futures_maturity('2019-02-09'):
 2019-03-20 16:00:00
 next_treasury_futures_maturity('2019-02-09', 2):
