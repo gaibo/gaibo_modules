@@ -3,7 +3,8 @@ import numpy as np
 from collections.abc import Iterable
 import pdblp
 from options_futures_expirations_v3 import datelike_to_timestamp, next_month_first_day, \
-                                           next_quarterly_month, undl_fut_quarter_month
+                                           next_quarterly_month, undl_fut_quarter_month, \
+                                           generate_expiries, BUSDAY_OFFSET
 
 BLOOMBERG_PULLS_FILEDIR = 'P:/PrdDevSharedDB/BBG Pull Scripts/'
 TREASURY_FUT_CSV_FILENAME = 'treasury_futures_pull.csv'
@@ -431,3 +432,100 @@ def get_fut_price(trade_date, fut_code, expiry_monthlike, expiry_type='futures',
                             product_type=product_type, use_single_digit_year=True)
         timeseries = data[ticker]['PX_LAST'].dropna()
     return timeseries.loc[trade_date]
+
+
+def create_maturities_roll_helper_df(roll_n_before_expiry=3, maturities=None,
+                                     start_datelike=None, **generate_expiries_kwargs):
+    """ Generate helper DataFrame for use in rolling futures
+        NOTE: function is an extension of options_futures_expirations_v3.generate_expiries();
+              see its documentation, but the key is to configure the future's maturity dates
+    :param roll_n_before_expiry: number of days before maturity date to roll
+    :param maturities: array of future's maturity dates; set as None to use generate_expiries() functionality
+    :param start_datelike: relevant iff maturities is None; mandatory start date to pass to generate_expiries()
+    :param generate_expiries_kwargs:
+               generate_expiries(start_datelike, end_datelike=None, n_terms=100,
+                                 specific_product=None, expiry_func=third_friday)
+    :return: pd.DataFrame with index 'Maturity' and columns 'Selected Roll Date',
+             'Post-Roll Return Date' (after rolling to next contract, you'll want to stitch in new returns),
+             'Bloomberg Stitch Date' (Bloomberg's default generic 1st and 2nd term futures roll day after maturity)
+    """
+    if maturities is None:
+        if start_datelike is None:
+            raise ValueError("Incorrect usage: must either pass in 1) maturities array or "
+                             "2) start date + kwargs for use with generate_expiries()")
+        else:
+            maturities = generate_expiries(start_datelike, **generate_expiries_kwargs)
+    maturities_df = (pd.DataFrame({'Maturity': maturities,
+                                   'Selected Roll Date': maturities - roll_n_before_expiry*BUSDAY_OFFSET,
+                                   'Post-Roll Return Date': maturities - (roll_n_before_expiry-1)*BUSDAY_OFFSET,
+                                   'Bloomberg Stitch Date': maturities + BUSDAY_OFFSET})
+                     .set_index('Maturity'))
+    return maturities_df
+
+
+def stitch_bloomberg_futures(gen1, gen2, maturities_df=None, **create_maturities_roll_helper_kwargs):
+    """ Go through trade date history, performing rolls and Bloomberg data stitches
+        Goal is to end up with:
+          - a percent return history with considerate stitching
+          - a scaled price history (starting at 100) for total return
+          - cumulative roll cost (selling near term buying next term on each roll date)
+    :param gen1: Bloomberg generic 1st term futures price
+    :param gen2: Bloomberg generic 2nd term futures price
+    :param maturities_df: helper DataFrame from create_maturities_roll_helper_df();
+                          set None to create from scratch with kwargs
+    :param create_maturities_roll_helper_kwargs:
+               create_maturities_roll_helper_df(roll_n_before_expiry=3, maturities=None,
+                                                start_datelike=None, **generate_expiries_kwargs)
+               generate_expiries(start_datelike, end_datelike=None, n_terms=100,
+                                 specific_product=None, expiry_func=third_friday)
+    :return: pd.DataFrame detailing stitching method and 'Stitched Change', 'Scaled Price', 'Cumulative Roll Cost'
+    """
+    if maturities_df is None:
+        # Generate futures maturities and surrounding dates relevant to roll
+        maturities_df = create_maturities_roll_helper_df(**create_maturities_roll_helper_kwargs)
+
+    # Play through each roll date and fill roll_df
+    roll_df = pd.DataFrame({'Bloomberg 1st': gen1, 'Bloomberg 2nd': gen2})
+    roll_df.index.name = 'Trade Date'
+    roll_df = roll_df.dropna(how='all')  # If NaN for both terms, chances are date is not legit
+    # NOTE: 1 NaN price causes 2 consecutive NaN changes - day of and day after;
+    #       should never worry a perfect dataset, but beware data is never perfect
+    roll_df['1st Change'] = roll_df['Bloomberg 1st'].pct_change(fill_method=None)
+    roll_df['2nd Change'] = roll_df['Bloomberg 2nd'].pct_change(fill_method=None)
+    for maturity_date in maturities_df.index:
+        if maturity_date in roll_df.index:
+            # Perform roll-related tasks
+            task_dates = maturities_df.loc[maturity_date]
+            roll_cost = (roll_df.loc[task_dates['Selected Roll Date'], 'Bloomberg 2nd']
+                         - roll_df.loc[task_dates['Selected Roll Date'], 'Bloomberg 1st'])
+            post_roll_pre_stitch_returns = \
+                roll_df.loc[task_dates['Post-Roll Return Date']:maturity_date, '2nd Change']
+            stitch_date_return = \
+                (roll_df.loc[task_dates['Bloomberg Stitch Date'], 'Bloomberg 1st']
+                 - roll_df.loc[maturity_date, 'Bloomberg 2nd']) / roll_df.loc[maturity_date, 'Bloomberg 2nd']
+            # Record to DataFrame
+            roll_df.loc[task_dates['Selected Roll Date'], 'Roll Cost'] = roll_cost
+            roll_df.loc[task_dates['Post-Roll Return Date']:maturity_date, 'Stitched Change from 2nd'] = \
+                post_roll_pre_stitch_returns.values
+            roll_df.loc[task_dates['Bloomberg Stitch Date'], 'Stitched Change from (1st-2nd)/2nd'] = \
+                stitch_date_return
+    no_stitch_returns_idx = (roll_df['Stitched Change from 2nd'].isna()
+                             & roll_df['Stitched Change from (1st-2nd)/2nd'].isna())
+    roll_df.loc[no_stitch_returns_idx, 'Stitched Change from 1st'] = \
+        roll_df.loc[no_stitch_returns_idx, '1st Change'].values
+
+    # Combine purposefully separated 3 components to create stitched percent returns
+    # NOTE: overwrite order does not matter because 'Stitched Change from 1st' defined to fill gaps
+    roll_df['Stitched Change'] = \
+        (roll_df['Stitched Change from 2nd']
+         .combine_first(roll_df['Stitched Change from (1st-2nd)/2nd'])
+         .combine_first(roll_df['Stitched Change from 1st']))
+
+    # Run stitched returns on 100 to get scaled price history
+    roll_df['Scaled Price'] = (roll_df['Stitched Change'] + 1).cumprod() * 100
+    roll_df.loc[roll_df.index[0], 'Scaled Price'] = 100
+
+    # Sum roll costs
+    roll_df['Cumulative Roll Cost'] = roll_df['Roll Cost'].cumsum().ffill()
+
+    return roll_df
