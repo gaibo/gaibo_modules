@@ -162,21 +162,32 @@ def change_year_month(datelike, new_year, new_month):
         return change_month(change_year(datelike, new_year), new_month)
 
 
-def ensure_bus_day(datelike, shift_to='prev'):
+def ensure_bus_day(datelike, shift_to='prev', busday_type='Cboe'):
     """ Ensure that all dates are business days, shifting to either previous or next if not
         NOTE: as of 2020-02-26, function produces PerformanceWarning due to vectorization of
               CustomBusinessDay addition not being implemented in pandas.offsets
     :param datelike: date-like representation, e.g. ['2019-01-03', '2020-02-25'], datetime object, etc.
     :param shift_to: 'prev' or 'next' to indicate which business day to correct to
+    :param busday_type: recognizes: 'Cboe', 'NYSE', 'SIFMA', 'federal', 'FICC', 'GSD', 'FICCGSD', 'Treasury'
     :return: pd.Timestamps of business dates
     """
     date = datelike_to_timestamp(datelike)
+    busday_type = busday_type.lower()
+    if busday_type in ['cboe', 'nyse']:
+        # Widely used exchange trading days
+        busday_offset = BUSDAY_OFFSET
+    elif busday_type in ['sifma', 'federal', 'ficc', 'gsd', 'ficcgsd', 'treasury']:
+        # SIFMA's calendar of government securities trading days; basically federal business days on which
+        # Treasury repo market is open; relevant to fixed income
+        busday_offset = TREASURY_BUSDAY_OFFSET
+    else:
+        raise ValueError(f"Cannot recognize busday_type \"{busday_type}\"")
     if isinstance(date, pd.Timestamp):
         # Single-element - no need to optimize
         if shift_to == 'prev':
-            bus_date = date + BUSDAY_OFFSET - BUSDAY_OFFSET
+            bus_date = date + busday_offset - busday_offset
         elif shift_to == 'next':
-            bus_date = date - BUSDAY_OFFSET + BUSDAY_OFFSET
+            bus_date = date - busday_offset + busday_offset
         else:
             raise ValueError("shift_to must indicate either 'prev' or 'next' business day")
         return bus_date
@@ -184,9 +195,9 @@ def ensure_bus_day(datelike, shift_to='prev'):
         # Multi-element - optimize based on logic that there are not too many unique dates in history
         unique_date = date.drop_duplicates()
         if shift_to == 'prev':
-            unique_bus_date = unique_date + BUSDAY_OFFSET - BUSDAY_OFFSET
+            unique_bus_date = unique_date + busday_offset - busday_offset
         elif shift_to == 'next':
-            unique_bus_date = unique_date - BUSDAY_OFFSET + BUSDAY_OFFSET
+            unique_bus_date = unique_date - busday_offset + busday_offset
         else:
             raise ValueError("shift_to must indicate either 'prev' or 'next' business day")
         date_df = pd.DataFrame({'date': date})  # Can't use .to_frame() in case date is np.ndarray
