@@ -1,11 +1,13 @@
 import pandas as pd
-from cboe_exchange_holidays_v3 import CboeTradingCalendar, FICCGSDBusinessCalendar, \
+from cboe_exchange_holidays_v3 import CboeTradingCalendar, FICCGSDBusinessCalendar, AFXTradingCalendar, \
                                       datelike_to_timestamp, timelike_to_timedelta, strip_to_date
 
 CBOE_TRADING_CALENDAR = CboeTradingCalendar()
 BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=CBOE_TRADING_CALENDAR)
 TREASURY_BUSINESS_CALENDAR = FICCGSDBusinessCalendar()
 TREASURY_BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=TREASURY_BUSINESS_CALENDAR)
+AFX_BUSINESS_CALENDAR = AFXTradingCalendar()
+AFX_BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=AFX_BUSINESS_CALENDAR)
 DAY_OFFSET = pd.Timedelta(days=1)   # 2x speed of pd.offsets.Day() in date arithmetic
 DAY_NAME_TO_WEEKDAY_NUMBER_DICT = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
                                    'Friday': 4, 'Saturday': 5, 'Sunday': 6}
@@ -168,7 +170,7 @@ def ensure_bus_day(datelike, shift_to='prev', busday_type='Cboe'):
               CustomBusinessDay addition not being implemented in pandas.offsets
     :param datelike: date-like representation, e.g. ['2019-01-03', '2020-02-25'], datetime object, etc.
     :param shift_to: 'prev' or 'next' to indicate which business day to correct to
-    :param busday_type: recognizes: 'Cboe', 'NYSE', 'SIFMA', 'federal', 'FICC', 'GSD', 'FICCGSD', 'Treasury'
+    :param busday_type: recognizes: 'Cboe', 'NYSE', 'SIFMA', 'federal', 'FICC', 'GSD', 'FICCGSD', 'Treasury', 'AFX'
     :return: pd.Timestamps of business dates
     """
     date = datelike_to_timestamp(datelike)
@@ -180,6 +182,9 @@ def ensure_bus_day(datelike, shift_to='prev', busday_type='Cboe'):
         # SIFMA's calendar of government securities trading days; basically federal business days on which
         # Treasury repo market is open; relevant to fixed income
         busday_offset = TREASURY_BUSDAY_OFFSET
+    elif busday_type in ['afx', 'ameribor']:
+        # I reverse-engineered AFX's AMERIBOR calendar and it's bizarre
+        busday_offset = AFX_BUSDAY_OFFSET
     else:
         raise ValueError(f"Cannot recognize busday_type \"{busday_type}\"")
     if isinstance(date, pd.Timestamp):

@@ -81,6 +81,27 @@ class FICCGSDBusinessCalendar(BaseTradingCalendar):
         self.rules.extend([USColumbusDay, USVeteransDay, GHWBushDayofMourning])
 
 
+class AFXTradingCalendar(AbstractHolidayCalendar):
+    """ Bespoke calendar made to match AFX's AMERIBOR calculations;
+        it seems they NEVER observe Good Friday but do every other SIFMA/FICC GSD holiday,
+        though in 2020 they do not do any extra observance when July 4th fell on Saturday
+    """
+    def __init__(self):
+        AbstractHolidayCalendar.__init__(self)
+        self.rules = [
+            NewYearsDay,
+            USMartinLutherKingJr,
+            USPresidentsDay,
+            USMemorialDay,
+            Holiday('Independence Day No Extra Observance', month=7, day=4),
+            USLaborDay,
+            USColumbusDay,
+            USVeteransDay,
+            USThanksgivingDay,
+            ChristmasDay
+        ]
+
+
 def datelike_to_timestamp(datelike, strip=False):
     """ Utility: Convert date-like representations to pd.Timestamps, for consistency
         NOTE: if datelike must be converted, it is first changed to string to avoid becoming nanoseconds
