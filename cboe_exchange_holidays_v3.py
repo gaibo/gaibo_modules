@@ -9,14 +9,16 @@ from pandas.tseries.holiday import \
     get_calendar
 
 # Additional holidays
-NewYearsDay = Holiday('New Year\'s Day', month=1, day=1, observance=sunday_to_monday)
-USIndependenceDay = Holiday('Independence Day', month=7, day=4, observance=nearest_workday)
+NewYearsDay = Holiday('New Year\'s Day', month=1, day=1, observance=sunday_to_monday)   # Sun->Mon, no Sat->Fri
+USIndependenceDay_Exch = Holiday('Independence Day', month=7, day=4, observance=nearest_workday)    # Sat->Fri
+USIndependenceDay_Bank = Holiday('Independence Day', month=7, day=4, observance=sunday_to_monday)   # No Sat->Fri
 USColumbusDay = Holiday('Columbus Day', month=10, day=1, offset=pd.DateOffset(weekday=MO(2)))
-USVeteransDay = Holiday('Veterans Day', month=11, day=11, observance=sunday_to_monday)
-ChristmasDay = Holiday('Christmas', month=12, day=25, observance=nearest_workday)
-NYSEUSMartinLutherKingJr = Holiday('Dr. Martin Luther King Jr.',
-                                   start_date=pd.Timestamp(1998, 1, 1), month=1, day=1,
-                                   offset=pd.DateOffset(weekday=MO(3)))     # Nationally 1986, but NYSE 1998
+USVeteransDay = Holiday('Veterans Day', month=11, day=11, observance=sunday_to_monday)  # Sun->Mon, no Sat->Fri
+ChristmasDay_Exch = Holiday('Christmas', month=12, day=25, observance=nearest_workday)      # Sat->Fri
+ChristmasDay_Bank = Holiday('Christmas', month=12, day=25, observance=sunday_to_monday)     # No Sat-Fri
+USMartinLutherKingJr_NYSE = Holiday('Dr. Martin Luther King Jr.',
+                                    start_date=pd.Timestamp(1998, 1, 1), month=1, day=1,
+                                    offset=pd.DateOffset(weekday=MO(3)))    # Nationally 1986, but NYSE 1998
 # Presidential Days of Mourning
 GHWBushDayofMourning = Holiday('George H. W. Bush Day of Mourning', year=2018, month=12, day=5)
 FordDayofMourning = Holiday('Gerald Ford Day of Mourning', year=2007, month=1, day=2)
@@ -36,7 +38,7 @@ AbstractHolidayCalendar.end_date = pd.Timestamp(2099, 12, 31)   # Default 2030-1
 
 
 class BaseTradingCalendar(AbstractHolidayCalendar):
-    """ Base calendar containing US holidays that are universally recognized
+    """ Base calendar containing US exchange trading holidays
     """
     def __init__(self):
         AbstractHolidayCalendar.__init__(self)
@@ -46,10 +48,10 @@ class BaseTradingCalendar(AbstractHolidayCalendar):
             USPresidentsDay,
             GoodFriday,
             USMemorialDay,
-            USIndependenceDay,
+            USIndependenceDay_Exch,
             USLaborDay,
             USThanksgivingDay,
-            ChristmasDay
+            ChristmasDay_Exch
         ]
 
 
@@ -67,24 +69,50 @@ class CboeTradingCalendar(BaseTradingCalendar):
                            NineElevenTuesday, NineElevenWednesday, NineElevenThursday, NineElevenFriday])
         # NYSE/Cboe began observing MLK Day in 1998, not 1986 when it became nationally recognized
         self.rules.remove(USMartinLutherKingJr)
-        self.rules.extend([NYSEUSMartinLutherKingJr])
+        self.rules.extend([USMartinLutherKingJr_NYSE])
 
 
-class FICCGSDBusinessCalendar(BaseTradingCalendar):
-    """ FICC's GSD business calendar, i.e. days on which Treasury notes can be delivered
+class BaseSIFMACalendar(AbstractHolidayCalendar):
+    """ SIFMA's (securities industry trade association) recommended calendar - includes every holiday
+        Source: https://www.sifma.org/resources/general/holiday-schedule/#US
+    """
+    def __init__(self):
+        AbstractHolidayCalendar.__init__(self)
+        self.rules = [
+            NewYearsDay,
+            USMartinLutherKingJr,
+            USPresidentsDay,
+            GoodFriday,
+            USMemorialDay,
+            USIndependenceDay_Exch,
+            USLaborDay,
+            USColumbusDay,
+            USVeteransDay,
+            USThanksgivingDay,
+            ChristmasDay_Exch
+        ]
+
+
+class FICCGSDBusinessCalendar(BaseSIFMACalendar):
+    """ FICC's GSD business calendar, i.e. days on which Treasury notes can be delivered; close to SIFMA
         NOTE: observes federal holidays (Columbus and Veterans Day) AND Good Friday
         NOTE: empirically, we see it observes Bush Sr. Day of Mourning but NOT Ford's
               DoM (2007-01-02) or Hurricane Sandy (2012-10-29 and 30); may be other exceptions
     """
     def __init__(self):
-        BaseTradingCalendar.__init__(self)
-        self.rules.extend([USColumbusDay, USVeteransDay, GHWBushDayofMourning])
+        BaseSIFMACalendar.__init__(self)
+        self.rules.extend([GHWBushDayofMourning])
 
 
-class AFXTradingCalendar(AbstractHolidayCalendar):
-    """ Bespoke calendar made to match AFX's AMERIBOR calculations;
-        it seems they NEVER observe Good Friday but do every other SIFMA/FICC GSD holiday,
-        though in 2020 they do not do any extra observance when July 4th fell on Saturday
+class FederalReserveCalendar(AbstractHolidayCalendar):
+    """ Federal Reserve system's business calendar; notably distinct from both exchanges and SIFMA
+        Definition:
+          1) excludes Good Friday
+          2) includes Columbus Day and Veterans Day
+          3) doesn't observe Friday before Saturday holiday (differs from exchanges on Independence and Christmas)
+          4) does observe Monday after Sunday holiday
+        Source: https://www.federalreserve.gov/aboutthefed/k8.htm
+        NOTE: used by AFX for AMERIBOR calculations
     """
     def __init__(self):
         AbstractHolidayCalendar.__init__(self)
@@ -93,12 +121,12 @@ class AFXTradingCalendar(AbstractHolidayCalendar):
             USMartinLutherKingJr,
             USPresidentsDay,
             USMemorialDay,
-            Holiday('Independence Day No Extra Observance', month=7, day=4),
+            USIndependenceDay_Bank,
             USLaborDay,
             USColumbusDay,
             USVeteransDay,
             USThanksgivingDay,
-            ChristmasDay
+            ChristmasDay_Bank
         ]
 
 

@@ -1,12 +1,12 @@
 import pandas as pd
-from cboe_exchange_holidays_v3 import CboeTradingCalendar, FICCGSDBusinessCalendar, AFXTradingCalendar, \
+from cboe_exchange_holidays_v3 import CboeTradingCalendar, FICCGSDBusinessCalendar, FederalReserveCalendar, \
                                       datelike_to_timestamp, timelike_to_timedelta, strip_to_date
 
 CBOE_TRADING_CALENDAR = CboeTradingCalendar()
 BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=CBOE_TRADING_CALENDAR)
 TREASURY_BUSINESS_CALENDAR = FICCGSDBusinessCalendar()
 TREASURY_BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=TREASURY_BUSINESS_CALENDAR)
-AFX_BUSINESS_CALENDAR = AFXTradingCalendar()
+AFX_BUSINESS_CALENDAR = FederalReserveCalendar()
 AFX_BUSDAY_OFFSET = pd.offsets.CustomBusinessDay(calendar=AFX_BUSINESS_CALENDAR)
 DAY_OFFSET = pd.Timedelta(days=1)   # 2x speed of pd.offsets.Day() in date arithmetic
 DAY_NAME_TO_WEEKDAY_NUMBER_DICT = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
@@ -182,8 +182,8 @@ def ensure_bus_day(datelike, shift_to='prev', busday_type='Cboe'):
         # SIFMA's calendar of government securities trading days; basically federal business days on which
         # Treasury repo market is open; relevant to fixed income
         busday_offset = TREASURY_BUSDAY_OFFSET
-    elif busday_type in ['afx', 'ameribor']:
-        # I reverse-engineered AFX's AMERIBOR calendar and it's bizarre
+    elif busday_type in ['afx', 'ameribor', 'federal reserve', 'bank']:
+        # AFX uses US Federal bank (Federal Reserve) holidays
         busday_offset = AFX_BUSDAY_OFFSET
     else:
         raise ValueError(f"Cannot recognize busday_type \"{busday_type}\"")
