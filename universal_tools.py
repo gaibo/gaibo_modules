@@ -146,10 +146,8 @@ def create_rolling_corr_df(timeseries_1, timeseries_2, rolling_months=(1, 2, 3, 
     :param drop_or_ffill: set 'drop' to drop dates that are not in common; set 'ffill' to forward-fill NaNs
     :return: pd.DataFrame with 'Rolling {n} Month' columns containing rolling correlation time series
     """
-    ts_df = pd.DataFrame({'TS1': timeseries_1, 'TS2': timeseries_2})    # Contains NaN on uncommon dates
     if drop_or_ffill == 'drop':
-        ts_df = ts_df.dropna(how='any')
-        # ts_df = share_dateindex([timeseries_1, timeseries_2], ffill=False, return_df=True)
+        ts_df = share_dateindex([timeseries_1, timeseries_2], ffill=False, return_df=True)
     elif drop_or_ffill == 'ffill':
         ts_df = share_dateindex([timeseries_1, timeseries_2], ffill=True, return_df=True)
     else:
@@ -174,9 +172,8 @@ def calc_overall_corr(timeseries_1, timeseries_2, start_datelike=None, end_datel
     :param drop_or_ffill: set 'drop' to drop dates that are not in common; set 'ffill' to forward-fill NaNs
     :return: number between -1 and 1
     """
-    ts_df = pd.DataFrame({'TS1': timeseries_1, 'TS2': timeseries_2})  # Contains NaN on uncommon dates
     if drop_or_ffill == 'drop':
-        ts_df = ts_df.dropna(how='any')
+        ts_df = share_dateindex([timeseries_1, timeseries_2], ffill=False, return_df=True)
     elif drop_or_ffill == 'ffill':
         ts_df = share_dateindex([timeseries_1, timeseries_2], ffill=True, return_df=True)
     else:
