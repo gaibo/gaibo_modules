@@ -79,6 +79,8 @@ def share_dateindex(timeseries_list, ffill=False, return_df=False, rename_value=
     """
     try:
         column_list = map(lambda ts: ts.name, timeseries_list)  # Try to maintain column names
+        if len(list(column_list)) != len(set(column_list)):
+            column_list = range(len(timeseries_list))   # Tricky: avoid duplicate natural column names
     except AttributeError:
         column_list = range(len(timeseries_list))   # If no column names, use list item number
     combined_df = pd.DataFrame(dict(zip(column_list, timeseries_list)))
