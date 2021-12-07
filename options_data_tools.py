@@ -129,13 +129,14 @@ def add_forward(data, trade_date_col='trade_date', exp_date_col='exp_date', stri
     return data_indexed_orig_with_forward.reset_index()
 
 
-def lookup_val_in_col(data, lookup_val, lookup_col, exact_only=False, groupby_cols=None):
+def lookup_val_in_col(data, lookup_val, lookup_col, exact_only=False, leq_only=False, groupby_cols=None):
     """ Return row (of first occurrence, if multiple) of nearest value in selected column
         NOTE: operates per aggregation group if groupby_cols parameter is used
     :param data: unindexed input DataFrame containing all fields
     :param lookup_val: value to look for in column
     :param lookup_col: column to look in
     :param exact_only: set True if only exact value match is desired
+    :param leq_only: set True if only less than or equal match is desired (e.g. strike just below forward price)
     :param groupby_cols: use instead of df.groupby(groupby_cols).apply(lambda data: lookup_val_in_col(...))
     :return: row (per aggregation, if applicable) containing column value that matches lookup value;
              if multiple matches, only first occurrence; if exact_only and no exact match, empty
@@ -148,6 +149,8 @@ def lookup_val_in_col(data, lookup_val, lookup_col, exact_only=False, groupby_co
         else:
             return exact_matches.iloc[0].copy() if not exact_matches.empty else exact_matches.copy()
     else:
+        if leq_only:
+            data = data[data[lookup_col] <= lookup_val]     # Essentially leq_matches
         # Find index(es) of minimum difference between lookup column and lookup value
         col_val_abs_diff = (data[lookup_col] - lookup_val).abs()
         if groupby_cols is not None:

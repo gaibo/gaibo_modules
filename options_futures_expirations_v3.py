@@ -682,6 +682,62 @@ def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
         return mat_ser
 
 
+def get_maturity_status(datelike, specific_product=None, expiry_func=third_friday, use_busdays=True, side='right'):
+    """ Derive current maturity period details - start, end, number of days, elapsed days
+    :param datelike: date-like representation
+    :param specific_product: override expiry_func argument with built-in selection;
+                             recognizes: 'VIX', 'SPX', 'Treasury options', 'Treasury futures 2/5/10/30', 'iBoxx'
+    :param expiry_func: monthly expiry function (returns expiration date given day in month)
+    :param use_busdays: set True to only count business days
+    :param side: if date is maturity, 'left' shows it as "next", 'right' shows it as "prev";
+                 does not matter if date is not maturity case; see numpy.searchsorted() for more
+    :return: (previous maturity date, next maturity date,
+              number of days in current maturity period, number of days since last maturity)
+    """
+    # Override with bespoke expiry_func for common products
+    if isinstance(specific_product, str):
+        specific_product = specific_product.lower()  # Normalize to lowercase
+        if specific_product in ['vix', 'vix future', 'vix futures', 'vix option', 'vix options']:
+            # Common request: VIX futures/options expiries (same for both)
+            expiry_func = vix_thirty_days_before(third_friday)
+        elif specific_product in ['spx', 'spx future', 'spx futures', 'e-mini', 'e-minis', 'spoos',
+                                  'spx option', 'spx options']:
+            # Common request: SPX futures (E-mini)/options expiries (same for both)
+            expiry_func = third_friday
+        elif specific_product in ['treasury option', 'treasury options']:
+            # CME Treasury options (all tenors)
+            expiry_func = last_friday
+        elif specific_product in ['treasury future 2', 'treasury futures 2',
+                                  'treasury future 5', 'treasury futures 5']:
+            # CME Treasury futures (2-year and 5-year tenors)
+            expiry_func = quarterly_only(last_of_month)
+        elif specific_product in ['treasury future 10', 'treasury futures 10',
+                                  'treasury future 30', 'treasury futures 30']:
+            # CME Treasury futures (10-year and 30-year tenors)
+            expiry_func = quarterly_only(seventh_before_last_of_month)
+        elif specific_product in ['iboxx', 'iboxx future', 'iboxx futures', 'ibhy', 'ibig',
+                                  'ibhy future', 'ibhy futures', 'ibig future', 'ibig futures']:
+            # iBoxx futures (IBHY and IBIG)
+            expiry_func = first_of_month
+        else:
+            raise ValueError(f"Cannot recognize product \"{specific_product}\"")
+    # When date is a maturity date, side='left' shows it as "next", side='right' shows it as "prev"
+    # (side does not matter for dates that are not maturity dates)
+    date = datelike_to_timestamp(datelike)
+    if date == expiry_func(date) and side == 'right':
+        # next_expiry() and prev_expiry() were designed for side='left', so need to get creative for 'right'
+        prev_mat_date = date
+        next_mat_date = next_expiry(date, expiry_func, n_terms=2)
+    elif side not in ['left', 'right']:
+        raise ValueError(f"Cannot recognize side \"{side}\"; must be 'right' or 'left'")
+    else:
+        prev_mat_date = prev_expiry(datelike, expiry_func)
+        next_mat_date = next_expiry(datelike, expiry_func)
+    days_in_mat_period = days_between(prev_mat_date, next_mat_date, use_busdays=use_busdays)
+    days_since_mat = days_between(prev_mat_date, datelike, use_busdays=use_busdays)
+    return prev_mat_date, next_mat_date, days_in_mat_period, days_since_mat
+
+
 ###############################################################################
 
 if __name__ == '__main__':

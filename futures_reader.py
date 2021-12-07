@@ -4,7 +4,7 @@ from collections.abc import Iterable
 import pdblp
 from options_futures_expirations_v3 import datelike_to_timestamp, next_month_first_day, \
                                            next_quarterly_month, undl_fut_quarter_month, \
-                                           generate_expiries, BUSDAY_OFFSET
+                                           generate_expiries, BUSDAY_OFFSET, get_maturity_status, third_friday
 
 BLOOMBERG_PULLS_FILEDIR = 'P:/PrdDevSharedDB/BBG Pull Scripts/'
 TREASURY_FUT_CSV_FILENAME = 'treasury_futures_pull.csv'
@@ -463,52 +463,75 @@ def create_maturities_roll_helper_df(roll_n_before_expiry=3, maturities=None,
     return maturities_df
 
 
-def stitch_bloomberg_futures(gen1, gen2, maturities_df=None, **create_maturities_roll_helper_kwargs):
+def stitch_bloomberg_futures(gen1, gen2, maturities_df=None, specific_product=None, expiry_func=third_friday,
+                             roll_n_before_expiry=3):
     """ Go through trade date history, performing rolls and Bloomberg data stitches
         Goal is to end up with:
           - a percent return history with considerate stitching
           - a scaled price history (starting at 100) for total return
           - cumulative roll cost (selling near term buying next term on each roll date)
+        NOTE: as with any function dealing with maturities, several options are available for specifying them:
+                -> pass in pre-created, pre-formatted maturities info (maturities_df)
+                OR
+                -> create formatted maturities info in this function:
+                  -> pass in recognized product name (specific_product)
+                  OR
+                  -> pass in function coded to find maturity date (expiry_func)
     :param gen1: Bloomberg generic 1st term futures price
     :param gen2: Bloomberg generic 2nd term futures price
     :param maturities_df: helper DataFrame from create_maturities_roll_helper_df();
-                          set None to create from scratch with kwargs
-    :param create_maturities_roll_helper_kwargs:
-               create_maturities_roll_helper_df(roll_n_before_expiry=3, maturities=None,
-                                                start_datelike=None, **generate_expiries_kwargs)
-               generate_expiries(start_datelike, end_datelike=None, n_terms=100,
-                                 specific_product=None, expiry_func=third_friday)
+                          set None to create from scratch with specific_product or expiry_func
+    :param specific_product: override expiry_func argument with built-in selection;
+                             recognizes: 'VIX', 'SPX', 'Treasury options', 'Treasury futures 2/5/10/30', 'iBoxx', etc.
+    :param expiry_func: monthly expiry function (returns expiration date given day in month)
+    :param roll_n_before_expiry: number of days before maturity date to roll
     :return: pd.DataFrame detailing stitching method and 'Stitched Change', 'Scaled Price', 'Cumulative Roll Cost'
     """
-    if maturities_df is None:
-        # Generate futures maturities and surrounding dates relevant to roll
-        maturities_df = create_maturities_roll_helper_df(**create_maturities_roll_helper_kwargs)
-
-    # Play through each roll date and fill roll_df
+    # Initialize roll_df with Bloomberg timeseries
     roll_df = pd.DataFrame({'Bloomberg 1st': gen1, 'Bloomberg 2nd': gen2})
     roll_df.index.name = 'Trade Date'
     roll_df = roll_df.dropna(how='all')  # If NaN for both terms, chances are date is not legit
+    if roll_df.empty:
+        raise ValueError("No usable data in input Bloomberg prices")
+
+    if maturities_df is None:
+        # Generate futures maturities and surrounding dates relevant to roll
+        # NOTE: consider subtle edge case of last data date being right before a maturity - need to know that next
+        #       maturity to know whether final dates in data require roll stitching
+        oldest_data_date, latest_data_date = roll_df.first_valid_index(), roll_df.last_valid_index()
+        _, next_relevant_expiry, _, _ = \
+            get_maturity_status(latest_data_date, specific_product=specific_product, expiry_func=expiry_func,
+                                side='left')    # side='left' because if latest_data_date is maturity, don't go further
+        maturities_df = \
+            create_maturities_roll_helper_df(start_datelike=oldest_data_date, end_datelike=next_relevant_expiry,
+                                             specific_product=specific_product, expiry_func=expiry_func,
+                                             roll_n_before_expiry=roll_n_before_expiry)
+
+    # Play through each roll date and perform roll-related tasks around it and record in roll_df
     # NOTE: 1 NaN price causes 2 consecutive NaN changes - day of and day after;
     #       should never worry a perfect dataset, but beware data is never perfect
+    # NOTE: subtle edge case: when data starts or ends in the middle of a roll period, loop should not throw error
     roll_df['1st Change'] = roll_df['Bloomberg 1st'].pct_change(fill_method=None)
     roll_df['2nd Change'] = roll_df['Bloomberg 2nd'].pct_change(fill_method=None)
     for maturity_date in maturities_df.index:
-        if maturity_date in roll_df.index:
-            # Perform roll-related tasks
-            task_dates = maturities_df.loc[maturity_date]
+        task_dates = maturities_df.loc[maturity_date]
+        if task_dates['Selected Roll Date'] in roll_df.index:
+            # 1) Get roll "cost" - per-contract cost of buying 2nd term, selling 1st term
             roll_cost = (roll_df.loc[task_dates['Selected Roll Date'], 'Bloomberg 2nd']
                          - roll_df.loc[task_dates['Selected Roll Date'], 'Bloomberg 1st'])
-            post_roll_pre_stitch_returns = \
-                roll_df.loc[task_dates['Post-Roll Return Date']:maturity_date, '2nd Change']
+            roll_df.loc[task_dates['Selected Roll Date'], 'Roll Cost'] = roll_cost  # Record to DataFrame
+        # 2) Use Bloomberg 2nd term returns until reassignment of 1st and 2nd term
+        post_roll_pre_stitch_returns = \
+            roll_df.loc[task_dates['Post-Roll Return Date']:maturity_date, '2nd Change']
+        roll_df.loc[task_dates['Post-Roll Return Date']:maturity_date, 'Stitched Change from 2nd'] = \
+            post_roll_pre_stitch_returns.values     # Record to DataFrame
+        if task_dates['Bloomberg Stitch Date'] in roll_df.index:
+            # 3) Create and use special stitched return to account for reassignment of 1st and 2nd term
             stitch_date_return = \
                 (roll_df.loc[task_dates['Bloomberg Stitch Date'], 'Bloomberg 1st']
                  - roll_df.loc[maturity_date, 'Bloomberg 2nd']) / roll_df.loc[maturity_date, 'Bloomberg 2nd']
-            # Record to DataFrame
-            roll_df.loc[task_dates['Selected Roll Date'], 'Roll Cost'] = roll_cost
-            roll_df.loc[task_dates['Post-Roll Return Date']:maturity_date, 'Stitched Change from 2nd'] = \
-                post_roll_pre_stitch_returns.values
             roll_df.loc[task_dates['Bloomberg Stitch Date'], 'Stitched Change from (1st-2nd)/2nd'] = \
-                stitch_date_return
+                stitch_date_return  # Record to DataFrame
     no_stitch_returns_idx = (roll_df['Stitched Change from 2nd'].isna()
                              & roll_df['Stitched Change from (1st-2nd)/2nd'].isna())
     roll_df.loc[no_stitch_returns_idx, 'Stitched Change from 1st'] = \
@@ -527,5 +550,11 @@ def stitch_bloomberg_futures(gen1, gen2, maturities_df=None, **create_maturities
 
     # Sum roll costs
     roll_df['Cumulative Roll Cost'] = roll_df['Roll Cost'].cumsum().ffill()
+
+    # Enforce column order - edge cases make 'Roll Cost' column move around
+    roll_df_cols = ['Bloomberg 1st', 'Bloomberg 2nd', '1st Change', '2nd Change',
+                    'Roll Cost', 'Stitched Change from 2nd', 'Stitched Change from (1st-2nd)/2nd',
+                    'Stitched Change from 1st', 'Stitched Change', 'Scaled Price', 'Cumulative Roll Cost']
+    roll_df = roll_df[roll_df_cols]
 
     return roll_df
