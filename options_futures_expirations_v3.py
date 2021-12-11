@@ -638,12 +638,15 @@ def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
     if isinstance(specific_product, str):
         specific_product = specific_product.lower()     # Normalize to lowercase
         if specific_product in ['vix', 'vix future', 'vix futures', 'vix option', 'vix options']:
-            # Common request: VIX futures/options expiries (same for both)
+            # Common request: Cboe VIX futures/options expiries (same for both)
             expiry_func = vix_thirty_days_before(third_friday)
-        elif specific_product in ['spx', 'spx future', 'spx futures', 'e-mini', 'e-minis', 'spoos',
-                                  'spx option', 'spx options']:
-            # Common request: SPX futures (E-mini)/options expiries (same for both)
+        elif specific_product in ['spx', 'spx option', 'spx options']:
+            # Common request: Cboe SPX options expiries
             expiry_func = third_friday
+        elif specific_product in ['spx future', 'spx futures', 'e-mini', 'e-minis', 'spoos',
+                                  'e-mini option', 'e-mini options']:
+            # CME E-mini (SPX futures) and E-mini options, both of which are quarterly
+            expiry_func = quarterly_only(third_friday)
         elif specific_product in ['treasury option', 'treasury options']:
             # CME Treasury options (all tenors)
             expiry_func = last_friday
@@ -698,12 +701,15 @@ def get_maturity_status(datelike, specific_product=None, expiry_func=third_frida
     if isinstance(specific_product, str):
         specific_product = specific_product.lower()  # Normalize to lowercase
         if specific_product in ['vix', 'vix future', 'vix futures', 'vix option', 'vix options']:
-            # Common request: VIX futures/options expiries (same for both)
+            # Common request: Cboe VIX futures/options expiries (same for both)
             expiry_func = vix_thirty_days_before(third_friday)
-        elif specific_product in ['spx', 'spx future', 'spx futures', 'e-mini', 'e-minis', 'spoos',
-                                  'spx option', 'spx options']:
-            # Common request: SPX futures (E-mini)/options expiries (same for both)
+        elif specific_product in ['spx', 'spx option', 'spx options']:
+            # Common request: Cboe SPX options expiries
             expiry_func = third_friday
+        elif specific_product in ['spx future', 'spx futures', 'e-mini', 'e-minis', 'spoos',
+                                  'e-mini option', 'e-mini options']:
+            # CME E-mini (SPX futures) and E-mini options, both of which are quarterly
+            expiry_func = quarterly_only(third_friday)
         elif specific_product in ['treasury option', 'treasury options']:
             # CME Treasury options (all tenors)
             expiry_func = last_friday
