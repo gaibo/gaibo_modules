@@ -717,9 +717,14 @@ def get_cashflows_from_holdings(etf_name='TLT', asof_datelike=None, file_dir=Non
         print(f"Implied cash maturity date: {implied_cash_maturity_date.strftime('%Y-%m-%d')}\n"
               f"Implied cash per million shares: {implied_cash_scaled}")
 
+    # Subtle: implied cash date is earliest date for cash arrival, and that includes bond coupon payments
+    # Make adjustment to coupon arrival dates in rare case they fall before implied cash date
+    cashflows_df.loc[implied_cash_maturity_date] = cashflows_df.loc[:implied_cash_maturity_date].sum()
+    cashflows_df = cashflows_df.loc[implied_cash_maturity_date:].copy()
+
     # Create sum of interest and principal column, for convenience like in iShares cash flow CSV
     cashflows_df['CASHFLOW'] = cashflows_df.sum(axis=1)
-    return cashflows_df
+    return cashflows_df.round(10)   # .round(11) is trick for precision, e.g. 0.324999 with repeating 9s shortens
 
 
 ###############################################################################
