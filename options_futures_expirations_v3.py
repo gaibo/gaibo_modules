@@ -20,7 +20,7 @@ THIRTY_DAYS = pd.Timedelta(days=30)
 ###############################################################################
 # Utilities
 
-def month_to_quarter_shifter(month, shift=-1):
+def month_to_quarter_shifter(month, shift=-1, left_quarter=False):
     """ Obtain any quarterly month given an input month using flexible shifting
         Flexibility of this function lies in experimenting with the shift parameter, e.g.:
         - shift=-1 (default) returns [3,  3,  3,  6,  6,  6,  9,  9,  9, 12, 12, 12]
@@ -28,9 +28,11 @@ def month_to_quarter_shifter(month, shift=-1):
         - shift=2 returns            [6,  6,  6,  9,  9,  9, 12, 12, 12,  3,  3,  3]
     :param month: input month number(s); arrays above are returned when np.arange(1, 13) is inputted
     :param shift: see explanation above
+    :param left_quarter: set True to use 1, 4, 7, 10 for quarter months rather than 3, 6, 9, 12
     :return: "shifted" quarterly month number(s)
     """
-    return ((month+shift) // 3 % 4 + 1) * 3
+    right_quarter_ret = ((month+shift) // 3 % 4 + 1) * 3
+    return right_quarter_ret-2 if left_quarter else right_quarter_ret
 
 
 def undl_fut_quarter_month(opt_contr_month):
