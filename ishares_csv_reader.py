@@ -102,12 +102,20 @@ PAR_VALUE_1000_DATES = pd.to_datetime(['2014-12-31', '2015-01-30', '2015-02-27',
 VALUE_HALVE_DATES = pd.to_datetime(['2018-03-14'])  # NOTE: no longer an issue after the July 2020 holdings reformat!
 VALUE_HALVE_FIELDS = ['Weight (%)', 'Market Value', 'Notional Value', 'Par Value']
 # Hard-code helpful info for reading XLS files
-HISTORICAL_SHEET_START = (
+# Update 2022-01-04: between 2021-09-29 and 2021-09-30, BlackRock removed "Index Level" column from Historical sheet
+OBSOLETE_HISTORICAL_SHEET_START = (
     '<ss:Worksheet ss:Name="Historical">\n'
     '<ss:Table>\n'
     '<ss:Row>\n'
     '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">As Of</ss:Data>\n</ss:Cell>\n'
     '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">Index Level</ss:Data>\n</ss:Cell>\n'
+    '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">NAV per Share</ss:Data>\n</ss:Cell>\n'
+    '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">Ex-Dividends</ss:Data>\n</ss:Cell>\n'
+    '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">Shares Outstanding</ss:Data>\n</ss:Cell>\n'
+    '</ss:Row>\n'
+)
+INDEX_LEVEL_LAST_DATE = pd.Timestamp('2021-09-27')  # Column removal was 2021-09-30, but last 2 days data was bad
+HISTORICAL_SHEET_START = (
     '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">NAV per Share</ss:Data>\n</ss:Cell>\n'
     '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">Ex-Dividends</ss:Data>\n</ss:Cell>\n'
     '<ss:Cell ss:StyleID="headerstyle">\n<ss:Data ss:Type="String">Shares Outstanding</ss:Data>\n</ss:Cell>\n'
@@ -408,6 +416,8 @@ def get_historical_xls_info(etf_name, asof_datelike,
     """ Read historical information from latest iShares XLS file from disk
         NOTE: iShares XLS files are created in XML that is close to an awful early-Excel format
               called XML Spreadsheet 2003 (they are misnamed as .xls), so we parse them manually
+        NOTE: between 2021-09-29 and 2021-09-30, "Index Level" column was removed from XLS file;
+              function will still return 4-tuple for legacy purposes, but index level will be NaN
     :param etf_name: 'TLT', 'IEF', etc.
     :param asof_datelike: desired "as of" date of information
     :param file_dir: directory to search for data file (overrides default directory)
@@ -420,27 +430,37 @@ def get_historical_xls_info(etf_name, asof_datelike,
     if file_dir is None:
         file_dir = ETF_FILEDIR
     if file_name is None:
-        # Use latest XLS file available in file_dir (does not depend on "as of" date)
-        file_name = sorted([f for f in os.listdir(file_dir)
-                            if f.endswith(f'_{etf_name}.xls')])[-1]
+        if asof_date > INDEX_LEVEL_LAST_DATE:
+            # Use latest XLS file available in file_dir (does not depend on "as of" date)
+            file_name = sorted([f for f in os.listdir(file_dir)
+                                if f.endswith(f'_{etf_name}.xls')])[-1]
+        else:
+            # Use latest XLS file with "Index Level" column
+            file_name = f'{INDEX_LEVEL_LAST_DATE.strftime("%Y-%m-%d")}_{etf_name}.xls'
     # Open XLS file and parse by raw string
     full_local_name = f'{file_dir}{file_name}'
     with open(full_local_name, encoding='utf-8-sig') as f:
         f_text = f.read()  # Extract all contents of file to string
         hist_sheet_loc = f_text.find(HISTORICAL_SHEET_START)  # Find Historical sheet for starting point
+        if hist_sheet_loc == -1:
+            raise ValueError(f"\"Historical\" sheet could not be identified in {file_name}; file format change?")
         asof_date_str = asof_date.strftime('%b %d, %Y')
         asof_date_loc = f_text.find(asof_date_str, hist_sheet_loc, -1)  # Find date in Historical sheet
         if asof_date_loc == -1:
             raise ValueError(f"\"as of\" date '{asof_date_str}' could not be found in {file_name}")
-        # Extract index level (1st field; Number)
-        index_start = f_text.find(NUM_FIELD_START, asof_date_loc, -1) + LEN_FIELD_START
-        index_end = f_text.find(FIELD_END, index_start, -1)
-        index = float(f_text[index_start:index_end])
-        # Extract NAV per share (2nd field; Number)
+        if asof_date > INDEX_LEVEL_LAST_DATE:
+            index = np.NaN  # After BlackRock file format change, can no longer extract Index Level
+            index_end = asof_date_loc   # NAV field loc still depends on this loc
+        else:
+            # Extract index level (1st field; Number)
+            index_start = f_text.find(NUM_FIELD_START, asof_date_loc, -1) + LEN_FIELD_START
+            index_end = f_text.find(FIELD_END, index_start, -1)
+            index = float(f_text[index_start:index_end])
+        # Extract NAV per share (2nd or 1st field; Number)
         nav_start = f_text.find(NUM_FIELD_START, index_end, -1) + LEN_FIELD_START
         nav_end = f_text.find(FIELD_END, nav_start, -1)
         nav = float(f_text[nav_start:nav_end])
-        # Extract ex-dividends (3rd field; String '--' if none, Number if exists)
+        # Extract ex-dividends (3rd or 2nd field; String '--' if none, Number if exists)
         div_agnostic_field_start = f_text.find(AGNOSTIC_FIELD_START, nav_end, -1)
         div_start = div_agnostic_field_start + LEN_FIELD_START  # Assume field is either string or number
         div_field_start = f_text[div_agnostic_field_start:div_start]
@@ -452,7 +472,7 @@ def get_historical_xls_info(etf_name, asof_datelike,
         else:
             raise ValueError(f"{asof_date_str} div_field_start indicates neither "
                              f"String nor Number: '{div_field_start}'")
-        # Extract shares outstanding (4th field; Number)
+        # Extract shares outstanding (4th or 3rd field; Number)
         shares_start = f_text.find(NUM_FIELD_START, div_start, -1) + LEN_FIELD_START
         shares_end = f_text.find(FIELD_END, shares_start, -1)
         shares = float(f_text[shares_start:shares_end])
@@ -697,9 +717,14 @@ def get_cashflows_from_holdings(etf_name='TLT', asof_datelike=None, file_dir=Non
         print(f"Implied cash maturity date: {implied_cash_maturity_date.strftime('%Y-%m-%d')}\n"
               f"Implied cash per million shares: {implied_cash_scaled}")
 
+    # Subtle: implied cash date is earliest date for cash arrival, and that includes bond coupon payments
+    # Make adjustment to coupon arrival dates in rare case they fall before implied cash date
+    cashflows_df.loc[implied_cash_maturity_date] = cashflows_df.loc[:implied_cash_maturity_date].sum()
+    cashflows_df = cashflows_df.loc[implied_cash_maturity_date:].copy()
+
     # Create sum of interest and principal column, for convenience like in iShares cash flow CSV
     cashflows_df['CASHFLOW'] = cashflows_df.sum(axis=1)
-    return cashflows_df
+    return cashflows_df.round(10)   # .round(11) is trick for precision, e.g. 0.324999 with repeating 9s shortens
 
 
 ###############################################################################
