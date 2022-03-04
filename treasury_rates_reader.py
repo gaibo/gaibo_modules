@@ -6,8 +6,14 @@ from metaballon.CleanSplines import ExLinearNaturalCubicSpline
 
 RATES_FILEDIR = 'P:/PrdDevSharedDB/Treasury Rates/'
 YIELDS_CSV_FILENAME = 'treasury_cmt_yields.csv'
-YIELDS_XML_URL = 'https://data.treasury.gov/feed.svc/DailyTreasuryYieldCurveRateData'
+# YIELDS_XML_URL = 'https://data.treasury.gov/feed.svc/DailyTreasuryYieldCurveRateData'     # Obsolete as of 2022-02-18
+YIELDS_XML_URL = ('https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/'
+                  'xml?data=daily_treasury_yield_curve&field_tdr_date_value=all')
 YIELDS_FIELDS = ['1 Mo', '2 Mo', '3 Mo', '6 Mo', '1 Yr', '2 Yr', '3 Yr', '5 Yr', '7 Yr', '10 Yr', '20 Yr', '30 Yr']
+YIELDS_XML_FIELDS = ['d_bc_1month', 'd_bc_2month', 'd_bc_3month', 'd_bc_6month',
+                     'd_bc_1year', 'd_bc_2year', 'd_bc_3year', 'd_bc_5year', 'd_bc_7year',
+                     'd_bc_10year', 'd_bc_20year', 'd_bc_30year']
+YIELDS_XML_FIELDS_DICT = dict(zip(YIELDS_XML_FIELDS, YIELDS_FIELDS))
 MATURITY_NAME_TO_DAYS_DICT = {'1 Mo': 30, '2 Mo': 60, '3 Mo': 91, '6 Mo': 182,
                               '1 Yr': 365, '2 Yr': 730, '3 Yr': 1095, '5 Yr': 1825,
                               '7 Yr': 2555, '10 Yr': 3650, '20 Yr': 7300, '30 Yr': 10950}
@@ -55,12 +61,15 @@ def pull_treasury_rates(file_dir=RATES_FILEDIR, file_name=YIELDS_CSV_FILENAME, d
         raw_values = entry['m_properties'].split('\n')
         date = pd.Timestamp(raw_values[1])
         yields = [_parse_raw(raw) for raw in raw_values[2:-1]]
-        yields_dict[date] = yields
-    yields_df = pd.DataFrame(yields_dict, index=YIELDS_FIELDS).T.sort_index()
+        yields_names = list(entry.keys())[14:-4]    # Number of yields is not constant in post-2022 XML format
+        yields_sub_dict = dict(zip(yields_names, yields))
+        yields_dict[date] = yields_sub_dict
+    yields_df = pd.DataFrame(yields_dict).T.sort_index()
+    yields_df = yields_df.rename(YIELDS_XML_FIELDS_DICT, axis=1)[YIELDS_FIELDS]     # Make columns human-readable
     yields_df.index.name = 'Date'
     yields_df.to_csv(file_dir + file_name)  # Export to disk
     if drop_empty_dates:
-        yields_df = yields_df.dropna(how='all')
+        yields_df = yields_df.dropna(how='all')     # Only known date dropped is 2010-10-11 (Columbus)
     return yields_df
 
 
@@ -330,6 +339,8 @@ def get_rate(datelike, time_to_maturity, loaded_rates=None, time_in_years=False,
                 this is an oddity of the dataset as no other federal holiday is included - it must be dropped
               - 2008-12-10, 18, and 24 are the only 3 dates in history on which a maturity is truly missing;
                 there is no explanation for why 3 Mo yield is null on each of these 3 dates
+              - pre-2022 treasury.gov redesign, 2017-04-14 was all 0s (but not NaN); after redesign,
+                this row has been dropped, fixing a messy data oddity
         NOTE: if a given date is unexpectedly missing any CMT values, the previous valid date's set is used
         NOTE: no vectorized input and output implemented
     :param datelike: date on which to obtain rate (can be string or object)
