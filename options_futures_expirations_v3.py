@@ -213,6 +213,27 @@ def ensure_bus_day(datelike, shift_to='prev', busday_type='Cboe'):
         return merged_df['unique_bus_date']
 
 
+def days_in_month(start_datelike='2012-01-01', end_datelike=None, use_busdays=False):
+    """ Return Series of number of calendar or business days in each month
+    :param start_datelike: start of date range; if start is not first of month, first month will return partial
+    :param end_datelike: end of date range; set None for 1 year after current month end
+    :param use_busdays: set True to only count business days
+    :return: Series with index of month and value of # of days
+    """
+    if end_datelike is None:
+        end_date = next_month_first_day(pd.Timestamp('now').normalize()) + pd.DateOffset(months=12) - DAY_OFFSET
+    else:
+        end_date = datelike_to_timestamp(end_datelike)
+    if use_busdays:
+        pd_date_range = pd.date_range(start_datelike, end_date, freq=BUSDAY_OFFSET)
+    else:
+        pd_date_range = pd.date_range(start_datelike, end_date)
+    ser_date_range = pd.Series(pd_date_range, index=pd_date_range)
+    ser_groupby = ser_date_range.groupby(pd.Grouper(freq='MS')).count()    # 'MS' for month start instead of 'M' for end
+    ser_groupby.index.name, ser_groupby.name = 'Month', 'Trading Days' if use_busdays else 'Calendar Days'
+    return ser_groupby
+
+
 ###############################################################################
 # Simple next and previous iteration
 
