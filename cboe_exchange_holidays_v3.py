@@ -19,6 +19,12 @@ ChristmasDay_Bank = Holiday('Christmas', month=12, day=25, observance=sunday_to_
 USMartinLutherKingJr_NYSE = Holiday('Dr. Martin Luther King Jr.',
                                     start_date=pd.Timestamp(1998, 1, 1), month=1, day=1,
                                     offset=pd.DateOffset(weekday=MO(3)))    # Nationally 1986, but NYSE 1998
+USJuneteenth = Holiday('Juneteenth',
+                       start_date=pd.Timestamp(2021, 6, 18), month=6, day=19,
+                       observance=nearest_workday)
+USJuneteenth_NYSE = Holiday('Juneteenth',
+                            start_date=pd.Timestamp(2022, 1, 1), month=6, day=19,
+                            observance=nearest_workday)  # Nationally 2021, but financially 2022
 # Presidential Days of Mourning
 GHWBushDayofMourning = Holiday('George H. W. Bush Day of Mourning', year=2018, month=12, day=5)
 FordDayofMourning = Holiday('Gerald Ford Day of Mourning', year=2007, month=1, day=2)
@@ -48,6 +54,7 @@ class BaseTradingCalendar(AbstractHolidayCalendar):
             USPresidentsDay,
             GoodFriday,
             USMemorialDay,
+            USJuneteenth,
             USIndependenceDay_Exch,
             USLaborDay,
             USThanksgivingDay,
@@ -68,8 +75,10 @@ class CboeTradingCalendar(BaseTradingCalendar):
                            HurricaneSandyMonday, HurricaneSandyTuesday,
                            NineElevenTuesday, NineElevenWednesday, NineElevenThursday, NineElevenFriday])
         # NYSE/Cboe began observing MLK Day in 1998, not 1986 when it became nationally recognized
+        # NYSE/Cboe began observing Juneteenth in 2022, not 2021 when it became nationally recognized
         self.rules.remove(USMartinLutherKingJr)
-        self.rules.extend([USMartinLutherKingJr_NYSE])
+        self.rules.remove(USJuneteenth)
+        self.rules.extend([USMartinLutherKingJr_NYSE, USJuneteenth_NYSE])
 
 
 class BaseSIFMACalendar(AbstractHolidayCalendar):
