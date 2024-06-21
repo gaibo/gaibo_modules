@@ -648,6 +648,7 @@ def generate_expiries(start_datelike, end_datelike=None, n_terms=100,
                       specific_product=None, expiry_func=third_friday):
     """ Generate Series of product expiry dates
         NOTE: vix_maturities = generate_expiries('2004-01-02', pd.Timestamp('now'), specific_product='VIX')
+        TODO: create separate name-matching code with smart matching logic, like Regex or fuzzy
     :param start_datelike: left bound (inclusive) on expiries to generate
     :param end_datelike: right bound (inclusive) on expiries to generate; set None to ues n_terms
     :param n_terms: instead of an end date, generate a number of expiries
